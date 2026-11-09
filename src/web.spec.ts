@@ -126,6 +126,8 @@ describe("a local server, with no tokens", () => {
 
   test("shows the skills, a search, a skill with its feedback and history, and why it changed", async () => {
     const home = await (await fetch(s.base)).text();
+    assert.match(home, /<title>honed<\/title>/);
+    assert.match(home, /\|_\| \|_\|\\___\/\|_\| \|_\|/);
     assert.match(home, /release-notes/);
     assert.match(home, /claude mcp add --transport http --scope user honed http:\/\/127\.0\.0\.1:\d+\/mcp</);
     assert.match(await (await fetch(`${s.base}/?q=grouping`)).text(), /release-notes/);
@@ -133,18 +135,21 @@ describe("a local server, with no tokens", () => {
     const body = await (await fetch(`${s.base}/skills/release-notes`)).text();
     assert.match(body, /Group by user-facing change\./);
     assert.match(body, /Saved me the grouping\./);
-    assert.match(body, /Their draft: SKILL\.md, scripts\/prs\.sh/);
+    assert.match(body, /with a draft: SKILL\.md, scripts\/prs\.sh/);
+    assert.match(body, /<title>release-notes · honed<\/title>/);
     const [v] = s.hub.store.versions("release-notes");
     const why = await (await fetch(`${s.base}/judgments/${v!.judgment}`)).text();
     assert.match(why, /Supported by the report\./);
     assert.match(why, /Every release I rewrote the notes by hand\./);
   });
 
-  test("escapes what agents wrote", async () => {
+  test("escapes what agents wrote, and highlights a search match without trusting it", async () => {
     await s.hub.submitFeedback({ skill: "release-notes", text: "<script>alert(1)</script>" });
     const body = await (await fetch(`${s.base}/skills/release-notes`)).text();
     assert.doesNotMatch(body, /<script>alert/);
     assert.match(body, /&lt;script&gt;alert/);
+    const found = await (await fetch(`${s.base}/?q=grouping`)).text();
+    assert.match(found, /<mark>[^<]*<\/mark>/);
   });
 
   test("a write without the write header is refused, and with it a refusal comes back in the server's words", async () => {

@@ -5,6 +5,7 @@ import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { parseArgs } from "node:util";
 import { createToken } from "./auth.ts";
+import { banner, palette, TAGLINE, WORDMARK } from "./banner.ts";
 import { DEFAULT_MAX_CHARS, Refusal } from "./domain.ts";
 import { Hub } from "./hub.ts";
 import { ClaudeJudge } from "./judge.ts";
@@ -13,7 +14,13 @@ import { app } from "./web.ts";
 
 const { version } = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")) as { version: string };
 
-const USAGE = `honed ${version}: share and hone skills across your organization. Agents get skills and submit feedback; each skill is revised from it.
+const color = Boolean(process.stdout.isTTY) && !process.env.NO_COLOR;
+const c = palette(color);
+
+const USAGE = `${c.ember(WORDMARK)}  ${c.dim(`v${version}`)}
+
+${c.bold(TAGLINE)}
+A shared skills library over MCP. Agents get skills and submit feedback; each skill is revised from it.
 
 Usage:
   honed [serve] [options]              run the server: the page, and MCP at /mcp
@@ -26,8 +33,8 @@ Options:
   --port <n>          port (default 4321, or HONED_PORT)
   --dir <path>        where the skills and their records are kept (default ~/.honed, or HONED_DIR)
   --max-chars <n>     the hard cap on a skill's text, all its files together (default ${DEFAULT_MAX_CHARS})
-  --judge-model <m>   the model the judge runs on (default: Claude Code's own)
-  --claude <path>     the Claude Code executable the judge runs with (default: claude)
+  --judge-model <m>   the model that revises skills (default: Claude Code's own)
+  --claude <path>     the Claude Code executable that revises skills (default: claude)
   --no-judge          never revise skills from feedback (they change only by revert)
   -h, --help          this
 
@@ -95,7 +102,7 @@ const port = Number(values.port ?? process.env.HONED_PORT ?? 4321);
 const maxChars = Number(values["max-chars"] ?? process.env.HONED_MAX_CHARS ?? DEFAULT_MAX_CHARS);
 if (!Number.isInteger(maxChars) || maxChars < 1000) fail("--max-chars must be a whole number of at least 1000");
 const judge = values["no-judge"] ? null : new ClaudeJudge({ model: values["judge-model"], command: values.claude });
-const log = (line: string) => console.log(`${new Date().toISOString().slice(11, 19)} ${line}`);
+const log = (line: string) => console.log(`${c.dim(new Date().toTimeString().slice(0, 8))} ${c.ember("✦")} ${line}`);
 
 const hub = await Hub.open(dir, judge, { log, maxChars });
 if (shared && hub.store.tokens().length === 0) {
@@ -105,13 +112,11 @@ if (shared && hub.store.tokens().length === 0) {
 
 const server = serve({ fetch: app(hub, version, { shared }).fetch, port, hostname: host }, () => {
   const url = `http://${shared ? host : "127.0.0.1"}:${port}`;
-  const tokens = hub.store.tokens().length;
-  console.log(`honed ${version}: skills at ${url}, kept in ${dir}
-${tokens ? `${tokens} token${tokens === 1 ? "" : "s"}: every request needs one.` : "No tokens: answering this machine only."}${judge ? "" : " No judge: skills change only by revert."}
-
-Connect Claude Code:
-  claude mcp add --transport http --scope user honed ${url}/mcp${tokens ? ' --header "Authorization: Bearer <token>"' : ""}
-`);
+  console.log(banner({ version, url, dir, tokens: hub.store.tokens().length, judge: judge !== null, color }));
+});
+server.on("error", (e: NodeJS.ErrnoException) => {
+  hub.close();
+  fail(e.code === "EADDRINUSE" ? `port ${port} is in use (is honed already running?). Try --port ${port + 1}.` : e.message);
 });
 
 for (const signal of ["SIGINT", "SIGTERM"] as const) {

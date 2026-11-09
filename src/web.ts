@@ -4,6 +4,7 @@ import { deleteCookie, getCookie, setCookie } from "hono/cookie";
 import { html, raw } from "hono/html";
 import type { HtmlEscapedString } from "hono/utils/html";
 import { callerOf } from "./auth.ts";
+import { TAGLINE, WORDMARK } from "./banner.ts";
 import { LOCAL_CALLER, Refusal, SKILL_FILE, type Caller, type Feedback, type Judgment } from "./domain.ts";
 import type { Hub, SkillSummary } from "./hub.ts";
 import { mcpServer } from "./mcp.ts";
@@ -30,53 +31,106 @@ interface Viewer {
 type Env = { Variables: { viewer: Viewer } };
 
 const CSS = `
-:root { --bg:#fbfaf8; --fg:#1d1d1f; --muted:#6b6b70; --line:#e3e1dc; --card:#fff; --accent:#3b5bdb; --add:#e6f4ea; --add-fg:#1e6b34; --del:#fdecea; --del-fg:#a1281d; --warn:#8a5a00; }
-@media (prefers-color-scheme: dark) { :root { --bg:#151517; --fg:#ececee; --muted:#9a9aa2; --line:#2c2c31; --card:#1d1d21; --accent:#8ea2ff; --add:#15301f; --add-fg:#8fd6a4; --del:#3a1a17; --del-fg:#f0a39b; --warn:#e2b45c; } }
+:root {
+  --bg:#fbf8f3; --fg:#26211d; --muted:#7a716a; --line:#e7e0d6; --card:#fffdf9; --sunk:#f4efe7;
+  --ember:#b8562a; --ember-soft:#f6e4d6; --sage:#3f6f47; --sage-soft:#e2eee1; --rust:#a3352a; --rust-soft:#f8e1dd;
+  --mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, monospace;
+  color-scheme: light dark;
+}
+@media (prefers-color-scheme: dark) {
+  :root { --bg:#161412; --fg:#ece6df; --muted:#9c938a; --line:#2e2a26; --card:#1d1a17; --sunk:#121110;
+    --ember:#ec8f5b; --ember-soft:#3a2519; --sage:#93c39a; --sage-soft:#1d2c1f; --rust:#f0a093; --rust-soft:#3a1d19; }
+}
 * { box-sizing:border-box; }
-body { margin:0; background:var(--bg); color:var(--fg); font:15px/1.5 ui-sans-serif, system-ui, -apple-system, sans-serif; }
-main { max-width:960px; margin:0 auto; padding:24px 16px 64px; }
-a { color:var(--accent); text-decoration:none; } a:hover { text-decoration:underline; }
-header.top { display:flex; gap:16px; align-items:baseline; border-bottom:1px solid var(--line); padding-bottom:12px; margin-bottom:24px; flex-wrap:wrap; }
-header.top a.home { font-weight:700; color:var(--fg); }
+body { margin:0; background:var(--bg); color:var(--fg); font:15px/1.55 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; }
+main { max-width:920px; margin:0 auto; padding:20px 16px 72px; }
+a { color:var(--ember); text-decoration:none; } a:hover { text-decoration:underline; }
+:focus-visible { outline:2px solid var(--ember); outline-offset:2px; border-radius:4px; }
+.mono, code, pre, h1, h2, .name, .pill, button, .brand { font-family:var(--mono); }
+header.top { display:flex; gap:12px; align-items:center; padding-bottom:14px; margin-bottom:28px; border-bottom:1px dashed var(--line); flex-wrap:wrap; }
+.brand { font-weight:700; color:var(--fg); letter-spacing:.02em; }
+.brand .star { color:var(--ember); }
 header.top .who { margin-left:auto; }
-h1 { font-size:24px; margin:0 0 4px; } h2 { font-size:17px; margin:32px 0 8px; }
+h1 { font-size:22px; margin:0 0 6px; letter-spacing:-.01em; }
+h2 { font-size:14px; margin:36px 0 10px; color:var(--muted); font-weight:600; text-transform:lowercase; }
+h2::before { content:"✦ "; color:var(--ember); }
 .muted { color:var(--muted); } .small { font-size:13px; }
-table { width:100%; border-collapse:collapse; } th, td { text-align:left; padding:8px 6px; border-bottom:1px solid var(--line); vertical-align:top; }
-th { font-size:12px; text-transform:uppercase; letter-spacing:.04em; color:var(--muted); font-weight:600; }
-pre { background:var(--card); border:1px solid var(--line); border-radius:6px; padding:12px; overflow-x:auto; font:12.5px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; margin:8px 0; white-space:pre; }
-pre.diff span { display:block; } .d-add { background:var(--add); color:var(--add-fg); } .d-del { background:var(--del); color:var(--del-fg); } .d-hunk { color:var(--muted); }
-details { margin:6px 0; } summary { cursor:pointer; }
-.card { background:var(--card); border:1px solid var(--line); border-radius:8px; padding:12px 14px; margin:8px 0; }
-.pill { display:inline-block; font-size:12px; padding:1px 8px; border-radius:999px; border:1px solid var(--line); color:var(--muted); }
-.pill.changed { color:var(--add-fg); } .pill.failed { color:var(--del-fg); } .pill.running, .pill.waiting { color:var(--warn); }
-form.act, form.search { display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin:8px 0; }
-form.search { margin:16px 0; }
-input[type=text], input[type=password] { font:inherit; padding:5px 8px; border:1px solid var(--line); border-radius:6px; background:var(--card); color:var(--fg); flex:1; min-width:180px; }
-button { font:inherit; padding:5px 12px; border-radius:6px; border:1px solid var(--line); background:var(--card); color:var(--fg); cursor:pointer; }
-button.primary { background:var(--accent); border-color:var(--accent); color:var(--bg); }
-.refusal { color:var(--del-fg); font-size:13px; width:100%; }
-.bar { display:inline-block; width:80px; height:6px; border-radius:3px; background:var(--line); vertical-align:middle; overflow:hidden; }
-.bar i { display:block; height:100%; background:var(--accent); }
-.snippet { font-size:13px; color:var(--muted); }
-code { font:13px ui-monospace, Menlo, monospace; }
+.hero { margin:8px 0 24px; }
+.wordmark { color:var(--ember); font-size:clamp(10px, 3vw, 15px); line-height:1.25; margin:0; background:none; border:0; padding:0; overflow:visible; }
+.edge { display:flex; align-items:center; width:31ch; max-width:100%; font-family:var(--mono); font-size:clamp(10px, 3vw, 15px); margin:4px 0 16px; color:var(--ember); }
+.edge::before { content:""; flex:1; border-top:2px solid var(--muted); opacity:.5; margin-right:4px; }
+.tagline { font-size:18px; font-weight:600; margin:0 0 4px; }
+pre { background:var(--sunk); border:1px solid var(--line); border-radius:8px; padding:12px 14px; overflow-x:auto; font-size:12.5px; line-height:1.5; margin:8px 0; white-space:pre-wrap; overflow-wrap:anywhere; }
+pre.diff { white-space:pre; overflow-wrap:normal; }
+pre.diff span { display:block; } .d-add { background:var(--sage-soft); color:var(--sage); } .d-del { background:var(--rust-soft); color:var(--rust); } .d-hunk { color:var(--muted); }
+details { margin:8px 0; } summary { cursor:pointer; } summary:hover { color:var(--ember); }
+.card { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:14px 16px; margin:10px 0; }
+.connect summary { font-weight:600; }
+.connect p { margin:10px 0 4px; }
+.grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(260px, 1fr)); gap:12px; }
+a.skill { display:block; color:inherit; background:var(--card); border:1px solid var(--line); border-radius:10px; padding:14px 16px; transition:border-color .15s, transform .15s; }
+a.skill:hover { text-decoration:none; border-color:var(--ember); transform:translateY(-1px); }
+.name { font-weight:700; color:var(--fg); }
+.desc { margin:4px 0 10px; font-size:14px; }
+.meta { display:flex; gap:10px; align-items:center; flex-wrap:wrap; font-size:12.5px; color:var(--muted); }
+.snippet { font-size:13px; color:var(--muted); margin:-4px 0 10px; }
+.snippet mark { background:var(--ember-soft); color:var(--fg); border-radius:3px; padding:0 2px; }
+.bar { display:inline-block; width:64px; height:6px; border-radius:3px; background:var(--line); vertical-align:middle; overflow:hidden; }
+.bar i { display:block; height:100%; background:var(--ember); }
+.pill { display:inline-block; font-size:11.5px; padding:1px 8px; border-radius:999px; border:1px solid var(--line); color:var(--muted); white-space:nowrap; }
+.pill.changed { color:var(--sage); background:var(--sage-soft); border-color:transparent; }
+.pill.failed { color:var(--rust); background:var(--rust-soft); border-color:transparent; }
+.pill.waiting { color:var(--ember); background:var(--ember-soft); border-color:transparent; }
+.pill.running { color:var(--ember); border-color:var(--ember); }
+.pill.running::before { content:"✦ "; display:inline-block; animation:spin 1.6s linear infinite; }
+@keyframes spin { to { transform:rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .pill.running::before { animation:none; } a.skill { transition:none; } a.skill:hover { transform:none; } }
+form.search { display:flex; gap:8px; margin:20px 0 6px; }
+form.act { display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin:10px 0 0; }
+input[type=search], input[type=text], input[type=password] { font:inherit; padding:9px 12px; border:1px solid var(--line); border-radius:8px; background:var(--card); color:var(--fg); flex:1; min-width:0; }
+input::placeholder { color:var(--muted); font-family:var(--mono); font-size:13.5px; }
+kbd { font-family:var(--mono); font-size:11px; border:1px solid var(--line); border-bottom-width:2px; border-radius:4px; padding:0 5px; color:var(--muted); }
+button { font-size:13px; padding:8px 14px; border-radius:8px; border:1px solid var(--ember); background:transparent; color:var(--ember); cursor:pointer; }
+button:hover { background:var(--ember-soft); }
+button.primary { background:var(--ember); color:var(--bg); } button.primary:hover { filter:brightness(1.08); }
+.refusal { color:var(--rust); font-size:13px; width:100%; }
+.refusal:empty { display:none; }
+.quote { border-left:3px solid var(--ember); padding:2px 0 2px 12px; margin:0 0 8px; white-space:pre-wrap; }
+.by { font-family:var(--mono); font-size:12px; color:var(--muted); }
+.timeline { position:relative; margin-left:6px; padding-left:20px; border-left:1px dashed var(--line); }
+.event { position:relative; margin:0 0 18px; }
+.event::before { content:"✦"; position:absolute; left:-27px; top:0; color:var(--ember); background:var(--bg); font-size:13px; line-height:1.4; }
+.event.person::before { content:"↺"; }
+.feed div { margin:6px 0; }
 .prose { white-space:pre-wrap; }
+.empty { border:1px dashed var(--line); border-radius:10px; padding:22px; text-align:center; color:var(--muted); }
+.back { font-family:var(--mono); font-size:13px; }
+footer { margin-top:56px; padding-top:14px; border-top:1px dashed var(--line); font-family:var(--mono); font-size:12px; color:var(--muted); }
 `;
 
-/** Sends a form as JSON with the write header, and shows a refusal beside the form, in the server's words. */
+/** Sends a form as JSON with the write header and shows a refusal beside it in the server's words; "/" focuses search. */
 const SCRIPT = `
 document.addEventListener("submit", async (ev) => {
   const form = ev.target.closest("form.act"); if (!form) return;
   ev.preventDefault();
   const out = form.querySelector(".refusal"); if (out) out.textContent = "";
+  const button = form.querySelector("button"); if (button) button.disabled = true;
   const body = Object.fromEntries(new FormData(form));
   const res = await fetch(form.getAttribute("action"), { method: "POST", headers: { "content-type": "application/json", "${WRITE_HEADER}": "1" }, body: JSON.stringify(body) });
   if (res.ok) { location.reload(); return; }
+  if (button) button.disabled = false;
   const err = await res.json().catch(() => ({ error: res.statusText }));
   if (out) out.textContent = err.error;
 });
+document.addEventListener("keydown", (ev) => {
+  const q = document.querySelector("input[type=search]");
+  if (ev.key === "/" && q && document.activeElement?.tagName !== "INPUT") { ev.preventDefault(); q.focus(); }
+});
 `;
 
-function page(title: string, body: Html, opts: { refresh?: boolean; viewer?: Viewer } = {}): Html {
+const FAVICON = `data:image/svg+xml,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><text x="16" y="25" font-size="26" text-anchor="middle" fill="#d9773f">✦</text></svg>')}`;
+
+function page(title: string, body: Html, opts: { refresh?: boolean; viewer?: Viewer; version?: string } = {}): Html {
   const who = opts.viewer && !opts.viewer.local ? html`<span class="who small muted">${opts.viewer.caller.name}${opts.viewer.caller.admin ? " (admin)" : ""} · <a href="/logout">sign out</a></span>` : "";
   return html`<!doctype html>
 <html lang="en">
@@ -84,25 +138,40 @@ function page(title: string, body: Html, opts: { refresh?: boolean; viewer?: Vie
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     ${opts.refresh ? html`<meta http-equiv="refresh" content="4" />` : ""}
-    <title>${title} · honed</title>
+    <title>${title}</title>
+    <link rel="icon" href="${FAVICON}" />
     <style>${raw(CSS)}</style>
   </head>
   <body>
     <main>
-      <header class="top"><a class="home" href="/">honed</a><span class="muted small">share and hone skills across your organization</span>${who}</header>
+      <header class="top"><a class="brand" href="/"><span class="star">✦</span> honed</a><span class="muted small">share and hone skills across your organization</span>${who}</header>
       ${body}
+      <footer>honed${opts.version ? ` v${opts.version}` : ""} · agents connect at <span>/mcp</span></footer>
     </main>
     <script>${raw(SCRIPT)}</script>
   </body>
 </html>`;
 }
 
-const when = (iso: string | null) => (iso ? html`<span class="muted small" title="${iso}">${iso.replace("T", " ").slice(0, 16)}</span>` : "");
-const pill = (text: string, kind = text) => html`<span class="pill ${kind}">${text}</span>`;
+/** "3h ago", with the exact time on hover. */
+function ago(iso: string | null): Html {
+  if (!iso) return html``;
+  const s = Math.max(0, (Date.now() - Date.parse(iso)) / 1000);
+  const text = s < 60 ? "just now" : s < 3600 ? `${Math.floor(s / 60)}m ago` : s < 86400 ? `${Math.floor(s / 3600)}h ago` : s < 86400 * 30 ? `${Math.floor(s / 86400)}d ago` : iso.slice(0, 10);
+  return html`<time datetime="${iso}" title="${iso.replace("T", " ").slice(0, 19)} UTC">${text}</time>`;
+}
+
+const pill = (text: string, kind = "") => html`<span class="pill ${kind}">${text}</span>`;
 const k = (n: number) => (n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n));
 
 function size(chars: number, cap: number): Html {
-  return html`<span title="${chars} of ${cap} characters"><span class="bar"><i style="width:${Math.min(100, Math.round((chars / cap) * 100))}%"></i></span> <span class="muted small">${k(chars)} / ${k(cap)}</span></span>`;
+  return html`<span title="${chars} of ${cap} characters, the cap"><span class="bar"><i style="width:${Math.min(100, Math.round((chars / cap) * 100))}%"></i></span> ${k(chars)}/${k(cap)}</span>`;
+}
+
+/** Search snippets mark matches with «»; the page shows them highlighted, everything else escaped. */
+function snippet(text: string): Html {
+  const parts = text.split(/«|»/);
+  return html`<div class="snippet">${parts.map((p, i) => (i % 2 ? html`<mark>${p}</mark>` : p))}</div>`;
 }
 
 function diff(text: string): Html {
@@ -117,142 +186,167 @@ function diff(text: string): Html {
 function action(path: string, label: string, opts: { reason?: string; extra?: Html } = {}): Html {
   return html`<form class="act" action="${path}">
     ${opts.extra ?? ""}
-    ${opts.reason !== undefined ? html`<input type="text" name="reason" placeholder="${opts.reason}" />` : ""}
+    ${opts.reason !== undefined ? html`<input type="text" name="reason" placeholder="${opts.reason}" aria-label="${opts.reason}" />` : ""}
     <button type="submit">${label}</button>
-    <div class="refusal"></div>
+    <div class="refusal" role="alert"></div>
   </form>`;
 }
 
-const rulerName = (j: Judgment) => (j.by === "person" ? (j.actor && j.actor !== "you" ? j.actor : "You") : "The judge");
+const personName = (j: Judgment) => (j.actor && j.actor !== "you" ? j.actor : "You");
 
 function outcome(j: Judgment): Html {
-  if (j.state !== "done") return pill(j.state);
-  return j.changed ? pill(`made v${j.version}`, "changed") : pill("no change");
+  if (j.state === "running") return pill("honing", "running");
+  if (j.state === "failed") return pill("failed", "failed");
+  if (j.by === "person") return pill(`reverted → v${j.version}`, "changed");
+  return j.changed ? pill(`honed → v${j.version}`, "changed") : pill("unchanged");
 }
 
-function judgmentLine(j: Judgment): Html {
-  return html`<div><a href="/judgments/${j.id}">${rulerName(j)} on ${j.skill}</a> ${outcome(j)} ${when(j.startedAt)}</div>`;
+function feedLine(j: Judgment): Html {
+  return html`<div><a href="/judgments/${j.id}" class="mono">${j.skill}</a> ${outcome(j)} <span class="muted small">${ago(j.startedAt)}</span></div>`;
 }
 
 function feedbackCard(f: Feedback): Html {
   return html`<div class="card">
-    <div class="prose">${f.text}</div>
+    <div class="quote">${f.text}</div>
     ${f.draft.length
-      ? html`<details><summary class="small">Their draft: ${f.draft.map((d) => d.path).join(", ")}</summary>${f.draft.map((d) => html`<div class="small"><code>${d.path}</code></div><pre>${d.content}</pre>`)}</details>`
+      ? html`<details><summary class="small">with a draft: ${f.draft.map((d) => d.path).join(", ")}</summary>${f.draft.map((d) => html`<div class="by">${d.path}</div><pre>${d.content}</pre>`)}</details>`
       : ""}
-    <div class="muted small">${f.author} · on ${f.version ? `v${f.version}` : "a new skill"} · ${when(f.at)} ·
-      ${f.judgment ? html`<a href="/judgments/${f.judgment}">considered</a>` : pill("waiting")}</div>
+    <div class="by">${f.author} · on ${f.version ? `v${f.version}` : "a new skill"} · ${ago(f.at)} ·
+      ${f.judgment ? html`<a href="/judgments/${f.judgment}">considered</a>` : pill("waiting", "waiting")}</div>
   </div>`;
 }
 
-function skillRow(s: SkillSummary, cap: number, snippet?: string): Html {
-  return html`<tr>
-    <td><a href="/skills/${s.name}"><b>${s.name}</b></a><div class="muted small">${s.description}</div>${snippet ? html`<div class="snippet">${snippet}</div>` : ""}</td>
-    <td>v${s.version}</td>
-    <td class="small">${size(s.chars, cap)}</td>
-    <td class="small">${s.feedback} on this version</td>
-  </tr>`;
+function skillCard(s: SkillSummary, cap: number, match?: string): Html {
+  return html`<a class="skill" href="/skills/${s.name}">
+    <div class="name">${s.name}</div>
+    <div class="desc">${s.description}</div>
+    ${match ? snippet(match) : ""}
+    <div class="meta"><span>v${s.version}</span><span>${size(s.chars, cap)}</span><span>${s.feedback} feedback</span><span>${ago(s.updatedAt)}</span></div>
+  </a>`;
 }
 
-const SKILL_HEAD = html`<tr><th>Skill</th><th>Version</th><th>Size</th><th>Feedback</th></tr>`;
-
-function connect(origin: string, viewer: Viewer): Html {
-  return html`<details class="card small"><summary>Connect Claude Code</summary>
+function connect(origin: string, viewer: Viewer, open: boolean): Html {
+  return html`<details class="card connect" ${open ? "open" : ""}><summary>Connect Claude Code</summary>
+    <p class="small muted">One command, once:</p>
     <pre>claude mcp add --transport http --scope user honed ${origin}/mcp${viewer.local ? "" : ' --header "Authorization: Bearer <your token>"'}</pre>
-    <p>Or the plugin, which also asks each session for feedback on the skills it used:</p>
+    <p class="small muted">Or the plugin, which also asks each session for feedback on the skills it used:</p>
     <pre>claude plugin marketplace add dakotacolorado/honed
 claude plugin install honed@honed --config url=${origin}</pre>
-    ${viewer.local ? "" : html`<p>Then <code>/plugin configure honed@honed</code> in a session to give it your token.</p>`}
+    ${viewer.local ? "" : html`<p class="small muted">Then <code>/plugin configure honed@honed</code> in a session to give it your token.</p>`}
   </details>`;
 }
 
-function home(hub: Hub, origin: string, viewer: Viewer, q: string): Html {
+function home(hub: Hub, origin: string, viewer: Viewer, q: string, version: string): Html {
   const results = q.trim() ? hub.search(q, 50) : null;
   const skills = hub.list();
-  const judgments = hub.store.recentJudgments(15);
+  const judgments = hub.store.recentJudgments(12);
   return page(
-    "Skills",
-    html`<h1>Skills</h1>
-      <p class="muted">Your agents use these, and submit feedback when they do. Each skill is revised from that feedback, and every version is kept.</p>
-      ${connect(origin, viewer)}
-      <form class="search" method="get" action="/"><input type="text" name="q" value="${q}" placeholder="Search every skill" /><button type="submit">Search</button></form>
+    "honed",
+    html`<div class="hero">
+        <pre class="wordmark" aria-label="honed">${WORDMARK}</pre>
+        <div class="edge" aria-hidden="true">✦</div>
+        <p class="tagline">${TAGLINE}</p>
+        <p class="muted">Agents get a skill before a task and submit feedback after. Each skill is revised from what they say, and every version is kept.</p>
+      </div>
+      ${connect(origin, viewer, skills.length === 0)}
+      <form class="search" method="get" action="/" role="search">
+        <input type="search" name="q" value="${q}" placeholder="search skills…" aria-label="Search skills" />
+        <button type="submit">Search</button>
+      </form>
+      <p class="small muted">Press <kbd>/</kbd> to search.</p>
       ${results
-        ? results.length
-          ? html`<table>${SKILL_HEAD}${results.map((r) => skillRow(r, hub.maxChars, r.snippet))}</table>`
-          : html`<p class="muted">No skill mentions that.</p>`
-        : skills.length
-          ? html`<table>${SKILL_HEAD}${skills.map((s) => skillRow(s, hub.maxChars))}</table>`
-          : html`<p class="muted">No skills yet. An agent adds one by submitting feedback under a new name with a draft.</p>`}
-      <h2>Recent changes</h2>
-      ${judgments.length ? judgments.map(judgmentLine) : html`<p class="muted small">None yet.</p>`}`,
-    { refresh: !results && judgments.some((j) => j.state === "running"), viewer },
+        ? html`<h2>${results.length} matching “${q}”</h2>
+            ${results.length ? html`<div class="grid">${results.map((r) => skillCard(r, hub.maxChars, r.snippet))}</div>` : html`<div class="empty">No skill mentions that. <a href="/">See them all</a>.</div>`}`
+        : html`<h2>skills${skills.length ? ` (${skills.length})` : ""}</h2>
+            ${skills.length
+              ? html`<div class="grid">${skills.map((s) => skillCard(s, hub.maxChars))}</div>`
+              : html`<div class="empty">No skills yet.<br />Ask an agent to <code>submit_feedback</code> under a new name with a draft <code>SKILL.md</code>, and the first one will be honed into shape.</div>`}`}
+      ${judgments.length ? html`<h2>recently honed</h2><div class="feed">${judgments.map(feedLine)}</div>` : ""}`,
+    { refresh: !results && judgments.some((j) => j.state === "running"), viewer, version },
   );
 }
 
-async function skillPage(hub: Hub, name: string, viewer: Viewer): Promise<HtmlEscapedString> {
+async function skillPage(hub: Hub, name: string, viewer: Viewer, version: string): Promise<HtmlEscapedString> {
   const skill = hub.skill(name);
   const summary = hub.list().find((s) => s.name === name)!;
   const files = await hub.files(name, skill.version);
   const versions = hub.store.versions(name);
   const diffs = await Promise.all(versions.map((v) => hub.library.diff(name, v.commit)));
   const feedback = hub.store.feedback(name, 50);
+  const waiting = feedback.filter((f) => !f.judgment).length;
   const judging = hub.isJudging(name);
   const admin = viewer.caller.admin;
   return page(
-    name,
-    html`<h1>${name} <span class="muted">v${skill.version}</span></h1>
+    `${name} · honed`,
+    html`<a class="back" href="/">← all skills</a>
+      <h1 style="margin-top:14px">${name} ${pill(`v${skill.version}`)} ${judging ? pill("honing", "running") : ""}</h1>
       <p>${summary.description}</p>
-      <p class="small">${size(summary.chars, hub.maxChars)} ${judging ? pill("revising", "running") : ""}</p>
-      ${admin && !judging ? action(`/api/skills/${name}/judge`, "Revise from feedback now") : ""}
+      <div class="meta">${size(summary.chars, hub.maxChars)}<span>${summary.feedback} feedback on this version</span>${waiting ? pill(`${waiting} waiting`, "waiting") : ""}</div>
+      ${admin && !judging && waiting ? action(`/api/skills/${name}/judge`, "Revise now") : ""}
 
-      <h2>Files</h2>
-      ${files.map(
-        (f) => html`<details ${f.path === SKILL_FILE ? "open" : ""}><summary><code>${f.path}</code>${f.executable ? " (executable)" : ""}</summary><pre>${f.content}</pre></details>`,
-      )}
+      <h2>files</h2>
+      ${files.map((f) => html`<details ${f.path === SKILL_FILE ? "open" : ""}><summary class="mono small">${f.path}${f.executable ? " (executable)" : ""}</summary><pre>${f.content}</pre></details>`)}
 
-      <h2>Feedback</h2>
-      ${feedback.length ? feedback.map(feedbackCard) : html`<p class="muted small">None yet.</p>`}
+      <h2>feedback</h2>
+      ${feedback.length ? feedback.map(feedbackCard) : html`<div class="empty">No feedback yet. It arrives as agents use the skill.</div>`}
 
-      <h2>History</h2>
-      ${versions.map(
-        (v, i) => html`<div class="card">
-          <b>v${v.version}</b> ${v.note} · <a class="small" href="/judgments/${v.judgment}">why</a> ${when(v.at)}
-          <details><summary class="small">What changed</summary>${diff(diffs[i] ?? "")}</details>
-          ${admin && v.version < skill.version
-            ? action(`/api/skills/${name}/revert`, `Revert to v${v.version}`, { reason: "Why (kept in the history)", extra: html`<input type="hidden" name="version" value="${v.version}" />` })
-            : ""}
-        </div>`,
-      )}`,
-    { refresh: judging, viewer },
+      <h2>history</h2>
+      <div class="timeline">
+        ${versions.map((v, i) => {
+          const j = hub.store.judgment(v.judgment);
+          const person = j?.by === "person";
+          return html`<div class="event ${person ? "person" : ""}">
+            <div><b class="mono">v${v.version}</b> ${v.note} <span class="muted small">· ${person ? `${personName(j!)} reverted it` : "honed"} ${ago(v.at)} · <a href="/judgments/${v.judgment}">why</a></span></div>
+            <details><summary class="small muted">what changed</summary>${diff(diffs[i] ?? "")}</details>
+            ${admin && v.version < skill.version
+              ? html`<details><summary class="small muted">revert to v${v.version}</summary>${action(`/api/skills/${name}/revert`, `Revert to v${v.version}`, { reason: "Why? (kept in the history)", extra: html`<input type="hidden" name="version" value="${v.version}" />` })}</details>`
+              : ""}
+          </div>`;
+        })}
+      </div>`,
+    { refresh: judging, viewer, version },
   );
 }
 
-async function judgmentPage(hub: Hub, id: string, viewer: Viewer): Promise<HtmlEscapedString> {
+async function judgmentPage(hub: Hub, id: string, viewer: Viewer, version: string): Promise<HtmlEscapedString> {
   const j = hub.judgment(id);
   const feedback = hub.store.feedbackOf(id);
-  const version = j.version ? hub.store.version(j.skill, j.version) : undefined;
+  const made = j.version ? hub.store.version(j.skill, j.version) : undefined;
   const exists = hub.store.skill(j.skill) !== undefined;
+  const heading =
+    j.state === "running" ? `Honing ${j.skill}…` :
+    j.state === "failed" ? `${j.skill} could not be revised` :
+    j.by === "person" ? `${personName(j)} reverted ${j.skill} → v${j.version}` :
+    j.changed ? `${j.skill} honed → v${j.version}` : `${j.skill} left unchanged`;
   return page(
-    `${j.skill}: ${j.by === "person" ? "revert" : "revision"}`,
-    html`<p class="small">${exists ? html`<a href="/skills/${j.skill}">${j.skill}</a>` : j.skill}</p>
-      <h1>${j.by === "person" ? `${rulerName(j)} reverted it` : "Revision from feedback"}</h1>
-      <p>${outcome(j)} ${when(j.startedAt)}</p>
-      ${j.reasoning ? html`<h2>Why</h2><p class="prose">${j.reasoning}</p>` : ""}
-      ${j.error ? html`<h2>Why it failed</h2><pre>${j.error}</pre>` : ""}
-      ${version ? html`<h2>What v${version.version} changed</h2>${diff(await hub.library.diff(j.skill, version.commit))}` : ""}
-      ${feedback.length ? html`<h2>The feedback it considered</h2>${feedback.map(feedbackCard)}` : ""}`,
-    { refresh: j.state === "running", viewer },
+    `${j.skill}${j.version ? ` v${j.version}` : ""} · honed`,
+    html`<a class="back" href="${exists ? `/skills/${j.skill}` : "/"}">← ${exists ? j.skill : "all skills"}</a>
+      <h1 style="margin-top:14px">${heading}</h1>
+      <p class="muted small">${ago(j.startedAt)}</p>
+      ${j.reasoning ? html`<h2>why</h2><div class="card prose">${j.reasoning}</div>` : ""}
+      ${j.error ? html`<h2>what went wrong</h2><pre>${j.error}</pre><p class="small muted">The feedback is still waiting, and is revised again when more arrives.</p>` : ""}
+      ${made ? html`<h2>what changed</h2>${diff(await hub.library.diff(j.skill, made.commit))}` : ""}
+      ${feedback.length ? html`<h2>the feedback behind it</h2>${feedback.map(feedbackCard)}` : ""}`,
+    { refresh: j.state === "running", viewer, version },
   );
 }
 
 function loginPage(error?: string): Html {
   return page(
-    "Sign in",
-    html`<h1>Sign in</h1>
-      <p class="muted">This honed is shared: paste the token you were given. <code>honed token create &lt;name&gt;</code> on the server makes one.</p>
-      <form method="post" action="/login" class="search"><input type="password" name="token" placeholder="honed_…" autocomplete="current-password" /><button type="submit" class="primary">Sign in</button></form>
-      ${error ? html`<p class="refusal">${error}</p>` : ""}`,
+    "Sign in · honed",
+    html`<div class="hero">
+        <pre class="wordmark" aria-label="honed">${WORDMARK}</pre>
+        <div class="edge" aria-hidden="true">✦</div>
+      </div>
+      <h1>Sign in</h1>
+      <p class="muted">This honed is shared. Paste the token you were given; <code>honed token create &lt;name&gt;</code> on the server makes one.</p>
+      <form method="post" action="/login" class="search"><input type="password" name="token" placeholder="honed_…" aria-label="Token" autocomplete="current-password" /><button type="submit" class="primary">Sign in</button></form>
+      ${error ? html`<p class="refusal" role="alert">${error}</p>` : ""}`,
   );
+}
+
+function notFound(message: string): Html {
+  return page("Not found · honed", html`<h1>Nothing here</h1><p class="muted">${message}.</p><p><a class="back" href="/">← all skills</a></p>`);
 }
 
 const field = (body: Record<string, unknown>, key: string) => (typeof body[key] === "string" ? (body[key] as string) : "");
@@ -264,7 +358,7 @@ export function app(hub: Hub, version: string, opts: AppOptions = {}): Hono<Env>
   web.onError((e, c) => {
     if (e instanceof Refusal) {
       const status = e.status as 400;
-      return c.req.path.startsWith("/api") || c.req.path === "/mcp" ? c.json({ error: e.message }, status) : c.html(page("Not found", html`<h1>${e.message}</h1>`), status);
+      return c.req.path.startsWith("/api") || c.req.path === "/mcp" ? c.json({ error: e.message }, status) : c.html(notFound(e.message), status);
     }
     console.error(e);
     return c.json({ error: "something went wrong in the server; its log says what" }, 500);
@@ -333,9 +427,9 @@ export function app(hub: Hub, version: string, opts: AppOptions = {}): Hono<Env>
   });
   web.get("/api/judgments/:id", (c) => c.json({ ...hub.judgment(c.req.param("id")), feedback: hub.store.feedbackOf(c.req.param("id")) }));
 
-  web.get("/", (c) => c.html(home(hub, new URL(c.req.url).origin, c.get("viewer"), c.req.query("q") ?? "")));
-  web.get("/skills/:name", async (c) => c.html(await skillPage(hub, c.req.param("name"), c.get("viewer"))));
-  web.get("/judgments/:id", async (c) => c.html(await judgmentPage(hub, c.req.param("id"), c.get("viewer"))));
+  web.get("/", (c) => c.html(home(hub, new URL(c.req.url).origin, c.get("viewer"), c.req.query("q") ?? "", version)));
+  web.get("/skills/:name", async (c) => c.html(await skillPage(hub, c.req.param("name"), c.get("viewer"), version)));
+  web.get("/judgments/:id", async (c) => c.html(await judgmentPage(hub, c.req.param("id"), c.get("viewer"), version)));
 
   return web;
 }

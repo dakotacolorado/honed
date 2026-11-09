@@ -1,6 +1,17 @@
 # honed
 
-**Share and hone skills across your organization.** A searchable library of agent skills behind one MCP server.
+```
+ _                        _
+| |__   ___  _ __   ___  __| |
+| '_ \ / _ \| '_ \ / _ \/ _` |
+| | | | (_) | | | |  __/ (_| |
+|_| |_|\___/|_| |_|\___|\__,_|
+══════════════════════════════✦
+```
+
+**Skills your agents sharpen every time they use them.** Share and hone skills across your organization: a
+searchable library of agent skills behind one MCP server.
+
 Your agents get skills and submit feedback when they use them, and each skill is revised from that feedback. Every
 version is kept, with why it changed.
 
@@ -52,7 +63,15 @@ claude plugin marketplace add dakotacolorado/honed
 claude plugin install honed@honed --config url=http://127.0.0.1:4321
 ```
 
-How it works: [docs/DESIGN.md](docs/DESIGN.md). `honed --help` lists the options.
+`honed --help` lists the options.
+
+## How it works
+
+One Node process serves the page, a small JSON API and MCP at `/mcp`. Skills live in a git repo under `~/.honed`
+(every version is a commit, so the library is readable and portable without honed), with SQLite alongside for
+feedback, tokens and full-text search. When feedback calls for it, Claude Code revises the skill headlessly, with
+no tools: it reads the skill, the feedback and its own past reasoning, and answers with a new version or no change.
+The server checks every answer against the same rules as any skill, the cap included, before it keeps it.
 
 ## Develop
 

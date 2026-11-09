@@ -286,16 +286,16 @@ export class Hub {
       const c = await this.gather(name, failure);
       if (!this.due(c, force)) return;
       const j = this.started(name, "judge");
-      this.log(`judging ${name} (attempt ${attempt})`);
+      this.log(`honing ${name}${attempt > 1 ? ` (attempt ${attempt})` : ""}…`);
       try {
         const decision = await this.judge!.decide(c);
         await this.exclusive(() => this.apply(c, j, decision));
-        this.log(`${name}: ${j.changed ? `now version ${j.version}` : "no change"}`);
+        this.log(j.changed ? `${name} honed → v${j.version}: ${decision.note.trim() || "changed from feedback"}` : `${name} unchanged: the feedback is kept for next time`);
         return;
       } catch (e) {
         Object.assign(j, { state: "failed", finishedAt: now(), error: e instanceof Error ? e.message : String(e) });
         this.store.putJudgment(j);
-        this.log(`${name}: judgment failed: ${j.error}`);
+        this.log(`${name} could not be revised: ${j.error}`);
         if (e instanceof Outdated) {
           this.dirty.add(name);
           return;
