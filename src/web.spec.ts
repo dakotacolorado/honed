@@ -18,6 +18,7 @@ const WRITE = { "content-type": "application/json", [WRITE_HEADER]: "1" };
 
 /** Takes the newest draft as it is. */
 const takeDraft: Judge = {
+  label: "a fake judge",
   async decide(c) {
     const d = [...c.feedback].reverse().find((f) => f.draft.length);
     return (d

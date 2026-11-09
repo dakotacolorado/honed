@@ -1,3 +1,4 @@
+import Anthropic from "@anthropic-ai/sdk";
 import { spawn } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -39,6 +40,8 @@ export interface Case {
 }
 
 export interface Judge {
+  /** How honed says it revises, for the banner: "Claude Code (your login)", "the Claude API (claude-opus-5-5)". */
+  readonly label: string;
   decide(c: Case): Promise<Decision>;
 }
 
@@ -85,6 +88,7 @@ export interface ClaudeJudgeOptions {
 
 /** Decides with one headless Claude Code session per case: no tools, no settings, no MCP servers, nothing to act with. */
 export class ClaudeJudge implements Judge {
+  readonly label = "Claude Code, signed in on this machine";
   private command: string;
   private model: string | undefined;
   private timeoutMs: number;
@@ -133,5 +137,62 @@ export class ClaudeJudge implements Judge {
       });
       child.stdin.end(render(c));
     });
+  }
+}
+
+/** The model the API judge uses unless told otherwise. */
+export const API_MODEL = "claude-opus-5-5";
+
+export interface ApiJudgeOptions {
+  /** Defaults to ANTHROPIC_API_KEY. */
+  apiKey?: string;
+  model?: string;
+  /** For tests: a client to call instead of the Claude API. */
+  client?: Anthropic;
+}
+
+/**
+ * Decides with one call to the Claude API per case, for a server with no Claude Code login. The decision comes back
+ * as structured output against the decision's schema; a refusal falls back to another model server-side.
+ */
+export class ApiJudge implements Judge {
+  readonly label: string;
+  private client: Anthropic;
+  private model: string;
+
+  constructor(opts: ApiJudgeOptions = {}) {
+    this.model = opts.model ?? API_MODEL;
+    this.client = opts.client ?? new Anthropic({ apiKey: opts.apiKey });
+    this.label = `the Claude API (${this.model})`;
+  }
+
+  async decide(c: Case): Promise<Decision> {
+    let message;
+    try {
+      message = await this.client.beta.messages
+        .stream({
+          model: this.model,
+          max_tokens: 32_000,
+          betas: ["server-side-fallback-2026-07-01"],
+          fallbacks: "default",
+          system: systemPrompt(c.guidance),
+          output_config: { effort: "high", format: { type: "json_schema", schema: decisionJsonSchema() } },
+          messages: [{ role: "user", content: render(c) }],
+        })
+        .finalMessage();
+    } catch (e) {
+      if (e instanceof Anthropic.AuthenticationError) throw new Error("the Claude API refused the API key: check ANTHROPIC_API_KEY");
+      if (e instanceof Anthropic.RateLimitError) throw new Error("the Claude API is rate-limiting this key; the feedback waits and is revised when more arrives");
+      if (e instanceof Anthropic.APIError) throw new Error(`the Claude API failed (${e.status ?? "no status"}): ${e.message}`);
+      throw e;
+    }
+    if (message.stop_reason === "refusal") throw new Error(`the Claude API declined to decide (${message.stop_details?.category ?? "no category"})`);
+    if (message.stop_reason === "max_tokens") throw new Error("the decision ran past the token limit; the skill may be too large to revise in one answer");
+    const text = message.content.flatMap((b) => (b.type === "text" ? [b.text] : [])).join("");
+    try {
+      return DecisionSchema.parse(JSON.parse(text));
+    } catch (e) {
+      throw new Error(`the Claude API gave no valid decision: ${e instanceof Error ? e.message : String(e)}`);
+    }
   }
 }

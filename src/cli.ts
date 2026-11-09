@@ -8,7 +8,7 @@ import { createToken } from "./auth.ts";
 import { banner, palette, TAGLINE, WORDMARK } from "./banner.ts";
 import { DEFAULT_MAX_CHARS, Refusal } from "./domain.ts";
 import { Hub } from "./hub.ts";
-import { ClaudeJudge } from "./judge.ts";
+import { chooseReviser } from "./reviser.ts";
 import { Store } from "./store.ts";
 import { app } from "./web.ts";
 
@@ -33,9 +33,14 @@ Options:
   --port <n>          port (default 4321, or HONED_PORT)
   --dir <path>        where the skills and their records are kept (default ~/.honed, or HONED_DIR)
   --max-chars <n>     the hard cap on a skill's text, all its files together (default ${DEFAULT_MAX_CHARS})
-  --judge-model <m>   the model that revises skills (default: Claude Code's own)
-  --claude <path>     the Claude Code executable that revises skills (default: claude)
-  --no-judge          never revise skills from feedback (they change only by revert)
+  --judge <mode>      who revises skills from feedback (default auto, or HONED_JUDGE):
+                        claude-code  Claude Code on this machine, with its login. For trying honed on a dev host.
+                        api          the Claude API, billed to ANTHROPIC_API_KEY. For a hosted server.
+                        auto         claude-code if Claude Code is installed, else api if the key is set, else off
+                        off          never; skills change only by hand
+  --judge-model <m>   the model that revises skills (default: Claude Code's own, or claude-opus-5-5 on the API)
+  --claude <path>     the Claude Code executable (default: claude)
+  --no-judge          the same as --judge off
   -h, --help          this
 
 With no tokens, honed answers only its own machine and needs none. Once a token exists, every request needs one:
@@ -52,6 +57,7 @@ const { values, positionals } = parseArgs({
     "judge-model": { type: "string" },
     claude: { type: "string" },
     "no-judge": { type: "boolean" },
+    judge: { type: "string" },
     admin: { type: "boolean" },
     help: { type: "boolean", short: "h" },
   },
@@ -107,7 +113,18 @@ const shared = !["127.0.0.1", "localhost", "::1"].includes(host);
 const port = Number(values.port ?? process.env.HONED_PORT ?? 4321);
 const maxChars = Number(values["max-chars"] ?? process.env.HONED_MAX_CHARS ?? DEFAULT_MAX_CHARS);
 if (!Number.isInteger(maxChars) || maxChars < 1000) fail("--max-chars must be a whole number of at least 1000");
-const judge = values["no-judge"] ? null : new ClaudeJudge({ model: values["judge-model"], command: values.claude });
+let reviser: ReturnType<typeof chooseReviser>;
+try {
+  reviser = chooseReviser({
+    mode: values["no-judge"] ? "off" : (values.judge ?? process.env.HONED_JUDGE ?? "auto"),
+    model: values["judge-model"],
+    claude: values.claude,
+    apiKey: process.env.ANTHROPIC_API_KEY,
+  });
+} catch (e) {
+  fail(e instanceof Error ? e.message : String(e));
+}
+const judge = reviser!.judge;
 const log = (line: string) => console.log(`${c.dim(new Date().toTimeString().slice(0, 8))} ${c.edge("✦")} ${line}`);
 
 const hub = await Hub.open(dir, judge, { log, maxChars });
@@ -118,7 +135,7 @@ if (shared && hub.store.tokens().length === 0) {
 
 const server = serve({ fetch: app(hub, version, { shared }).fetch, port, hostname: host }, () => {
   const url = `http://${shared ? host : "127.0.0.1"}:${port}`;
-  console.log(banner({ version, url, dir, tokens: hub.store.tokens().length, judge: judge !== null, color }));
+  console.log(banner({ version, url, dir, tokens: hub.store.tokens().length, reviser: reviser.why, color }));
 });
 server.on("error", (e: NodeJS.ErrnoException) => {
   hub.close();

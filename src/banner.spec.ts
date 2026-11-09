@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { banner, WORDMARK } from "./banner.ts";
 
-const info = { version: "1.2.3", url: "http://127.0.0.1:4321", dir: "/srv/honed", tokens: 0, judge: true, color: false };
+const info = { version: "1.2.3", url: "http://127.0.0.1:4321", dir: "/srv/honed", tokens: 0, reviser: "Revising with Claude Code, signed in on this machine.", color: false };
 
 test("says what honed is, where it is, and the one command to connect", () => {
   const text = banner(info);

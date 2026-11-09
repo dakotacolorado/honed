@@ -23,7 +23,8 @@ export interface BannerInfo {
   url: string;
   dir: string;
   tokens: number;
-  judge: boolean;
+  /** Who revises skills, or why nothing does. */
+  reviser: string;
   color: boolean;
 }
 
@@ -51,7 +52,8 @@ export function banner(b: BannerInfo): string {
     "  what happened and what should change. Each skill is revised from that",
     "  feedback, and every version is kept with why it changed.",
     "",
-    `  ${c.dim(b.tokens ? `${b.tokens} token${b.tokens === 1 ? "" : "s"}: every request needs one.` : "Local only: no tokens, answering this machine.")}${b.judge ? "" : c.dim(" Revision is off (--no-judge).")}`,
+    `  ${c.dim(b.reviser)}`,
+    `  ${c.dim(b.tokens ? `${b.tokens} token${b.tokens === 1 ? "" : "s"}: every request needs one.` : "Local only: no tokens, answering this machine.")}`,
     `  ${c.dim("Ctrl+C to stop.")}`,
     "",
   ].join("\n");

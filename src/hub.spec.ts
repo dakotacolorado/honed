@@ -13,6 +13,7 @@ const noChange: Decision = { reasoning: "Not yet.", changed: false, note: "", wr
 
 /** Decides as `decide` says, and keeps every case it was given. */
 class FakeJudge implements Judge {
+  readonly label = "a fake judge";
   cases: Case[] = [];
   decide_: (c: Case) => Decision | Promise<Decision>;
   constructor(decide: (c: Case) => Decision | Promise<Decision>) {
