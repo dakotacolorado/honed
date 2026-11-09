@@ -1,5 +1,6 @@
-import { mkdir } from "node:fs/promises";
-import { join } from "node:path";
+import { mkdir, readdir, readFile, stat } from "node:fs/promises";
+import { join, relative } from "node:path";
+import { fileURLToPath } from "node:url";
 import {
   applyFiles,
   checkDraft,
@@ -8,6 +9,7 @@ import {
   DEFAULT_MAX_CHARS,
   FEEDBACK_BATCH,
   frontmatter,
+  JUDGE_SKILL,
   JUDGMENT_ATTEMPTS,
   newId,
   now,
@@ -43,10 +45,28 @@ export interface SearchResult extends SkillSummary {
 export interface HubOptions {
   /** The hard cap on a skill's text, all its files together. */
   maxChars?: number;
+  /** Add the starter skills on first run, and honed-judge whenever it is missing (default true); false adds nothing, for tests. */
+  starters?: boolean;
   log?: (line: string) => void;
 }
 
 const ANONYMOUS = "an unnamed agent";
+const STARTERS = fileURLToPath(new URL("./starters/", import.meta.url));
+
+/** A starter's files, read from the folder shipped with honed. */
+async function readStarter(name: string): Promise<SkillFile[]> {
+  const root = join(STARTERS, name);
+  const files: SkillFile[] = [];
+  for (const entry of await readdir(root, { recursive: true, withFileTypes: true })) {
+    if (!entry.isFile()) continue;
+    const path = join(entry.parentPath, entry.name);
+    files.push({ path: relative(root, path), content: await readFile(path, "utf8"), executable: ((await stat(path)).mode & 0o111) !== 0 });
+  }
+  return files.sort((a, b) => a.path.localeCompare(b.path));
+}
+
+/** A SKILL.md without its frontmatter. */
+const body = (skillMd: string) => skillMd.replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n?/, "").trim();
 
 /** The skills, the feedback on them, and the judge that turns one into the next version of the other. */
 export class Hub {
@@ -75,6 +95,7 @@ export class Hub {
     await library.init();
     const hub = new Hub(new Store(join(dir, "honed.db")), library, judge, opts);
     hub.store.failAbandoned(now());
+    await hub.seed(opts.starters ?? true);
     for (const s of hub.store.skills()) hub.remember(s.name, await hub.files(s.name, s.version));
     for (const name of new Set(hub.store.waiting().map((f) => f.skill))) hub.schedule(name);
     return hub;
@@ -82,6 +103,27 @@ export class Hub {
 
   close() {
     this.store.close();
+  }
+
+  /** Adds the starters the first time honed runs on a library, and honed-judge whenever it is missing. */
+  private async seed(starters: boolean): Promise<void> {
+    if (!starters) return;
+    const names = this.store.meta("seeded") ? [JUDGE_SKILL] : (await readdir(STARTERS)).sort();
+    for (const name of names) {
+      if (this.store.skill(name)) continue;
+      const files = await readStarter(name);
+      checkSkill(name, files, this.maxChars);
+      const j = this.started(name, "starter");
+      j.reasoning = "A starter skill that ships with honed.";
+      j.version = await this.commit(name, files, "Shipped with honed", j);
+      this.finish(j, true, []);
+    }
+    this.store.setMeta("seeded", now());
+  }
+
+  /** The reviser's judging guidance: the honed-judge skill's current SKILL.md, without its frontmatter. */
+  async guidance(): Promise<string> {
+    return body((await this.current(JUDGE_SKILL)).find((f) => f.path === SKILL_FILE)?.content ?? "");
   }
 
   /** One write at a time, so each version is made from the version it read. */
@@ -239,6 +281,8 @@ export class Hub {
   /** Asks for a judgment on a skill when its feedback calls for one; one at a time per skill. */
   schedule(name: string, force = false): void {
     if (!this.judge) return;
+    // The judge does not revise its own guidance on its own: feedback on it waits for an admin.
+    if (name === JUDGE_SKILL && !force) return;
     if (this.running.has(name)) {
       this.dirty.add(name);
       return;
@@ -275,8 +319,9 @@ export class Hub {
       files: await this.files(name, version),
       others: this.neighbours(name),
       feedback: this.store.waiting(name),
-      precedent: this.store.judgments(name, PRECEDENT * 2).filter((j) => j.state === "done").slice(0, PRECEDENT),
+      precedent: this.store.judgments(name, PRECEDENT * 2).filter((j) => j.state === "done" && j.by === "judge").slice(0, PRECEDENT),
       failure,
+      guidance: await this.guidance(),
     };
   }
 

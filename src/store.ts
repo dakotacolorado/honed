@@ -18,6 +18,7 @@ CREATE TABLE IF NOT EXISTS judgments (
 );
 CREATE INDEX IF NOT EXISTS judgments_by_skill ON judgments (skill, started_at);
 CREATE TABLE IF NOT EXISTS tokens (name TEXT PRIMARY KEY, hash TEXT NOT NULL UNIQUE, admin INTEGER NOT NULL, created_at TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
 CREATE VIRTUAL TABLE IF NOT EXISTS search USING fts5(name, description, body, tokenize = 'porter unicode61');
 `;
 
@@ -151,6 +152,10 @@ export class Store {
       f.judgment,
     );
   }
+  /** Whether any agent has ever submitted feedback: until one has, nothing has connected. */
+  anyFeedback(): boolean {
+    return this.get("SELECT 1 AS x FROM feedback LIMIT 1") !== undefined;
+  }
   consider(ids: string[], judgment: string): void {
     for (const id of ids) this.run("UPDATE feedback SET judgment = ? WHERE id = ? AND judgment IS NULL", judgment, id);
   }
@@ -189,6 +194,14 @@ export class Store {
   /** Judgments left running by a server that stopped: they will never finish. */
   failAbandoned(at: string): void {
     this.run("UPDATE judgments SET state = 'failed', error = 'the server stopped before it finished', finished_at = ? WHERE state = 'running'", at);
+  }
+
+  meta(key: string): string | undefined {
+    const r = this.get("SELECT value FROM meta WHERE key = ?", key);
+    return r && s(r.value);
+  }
+  setMeta(key: string, value: string): void {
+    this.run("INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT (key) DO UPDATE SET value = excluded.value", key, value);
   }
 
   /** A token is kept only as its hash; its name is who it speaks for. */

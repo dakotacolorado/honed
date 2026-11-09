@@ -64,9 +64,9 @@ describe("the SessionStart hook", () => {
   let dir: string;
   before(async () => {
     dir = await mkdtemp(join(tmpdir(), "honed-start-"));
-    hub = await Hub.open(dir, null);
+    hub = await Hub.open(dir, null, { starters: false });
     hub.close();
-    hub = await Hub.open(dir, { decide: async (c) => ({ reasoning: "r", changed: true, note: "n", write: c.feedback[0]!.draft.map((f) => ({ ...f, executable: false })), remove: [] }) });
+    hub = await Hub.open(dir, { decide: async (c) => ({ reasoning: "r", changed: true, note: "n", write: c.feedback[0]!.draft.map((f) => ({ ...f, executable: false })), remove: [] }) }, { starters: false });
     await hub.submitFeedback({ skill: "git-commits", text: "t", files: [{ path: "SKILL.md", content: "---\nname: git-commits\ndescription: Commit messages.\n---\n" }] });
     await hub.idle();
     await new Promise<void>((ready) => {

@@ -4,6 +4,8 @@ export const SKILL_FILE = "SKILL.md";
 /** The most text a skill may hold, all its files together, unless the server is started with another. */
 export const DEFAULT_MAX_CHARS = 20_000;
 export const MAX_FILES = 100;
+/** The skill holding the reviser's own judging guidance: shipped with honed, revised only when an admin asks. */
+export const JUDGE_SKILL = "honed-judge";
 /** Feedback without a draft waits for this many on a skill before the judge looks; a draft is judged at once. */
 export const FEEDBACK_BATCH = 3;
 /** Failed judgments in a row before a skill waits for new feedback. */
@@ -53,11 +55,11 @@ export interface Feedback {
   judgment: string | null;
 }
 
-/** One ruling on a skill: by the judge on its feedback, or by a person reverting it. */
+/** One change, or decision not to change, to a skill: the judge's from feedback, a person's revert, or a starter shipped with honed. */
 export interface Judgment {
   id: string;
   skill: string;
-  by: "judge" | "person";
+  by: "judge" | "person" | "starter";
   /** For a person's ruling, whose token made it. */
   actor: string | null;
   state: "running" | "done" | "failed";

@@ -36,6 +36,12 @@ skills (`claude -p`, with no tools).
 Skills are folders in Claude Code's format: a `SKILL.md` plus any scripts, references or templates. Each has a
 hard cap on its text (20,000 characters by default), so a skill can be revised but never bloated.
 
+A new library starts with a few skills to show the idea: `git-commits`, `code-review`, `debugging`, and
+`honed-feedback`, which teaches agents to write feedback that actually changes a skill. It also has `honed-judge`:
+how honed decides on every revision, written as a skill like any other, so you can read it and agents can give
+feedback on it. It is never revised on its own: feedback on it waits for an admin to choose **Revise now**. The rules
+that keep revisions safe, and the cap, live in honed itself and can't be edited away.
+
 ## An example
 
 An agent asked for a `git-commits` skill, with a draft: imperative subjects, one logical change per commit. Then

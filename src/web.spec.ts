@@ -34,7 +34,7 @@ interface Running {
 
 async function start(opts: { shared?: boolean } = {}): Promise<Running> {
   const dir = await mkdtemp(join(tmpdir(), "honed-web-"));
-  const hub = await Hub.open(dir, takeDraft);
+  const hub = await Hub.open(dir, takeDraft, { starters: false });
   let server!: ServerType;
   await new Promise<void>((ready) => {
     server = serve({ fetch: app(hub, "test", opts).fetch, port: 0, hostname: "127.0.0.1" }, () => ready());

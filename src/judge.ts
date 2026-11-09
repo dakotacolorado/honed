@@ -34,6 +34,8 @@ export interface Case {
   precedent: Judgment[];
   /** Why the judge's last attempt at this same case was refused, for it to correct. */
   failure: string | null;
+  /** How to judge: the body of the honed-judge skill's current version. */
+  guidance: string;
 }
 
 export interface Judge {
@@ -69,7 +71,10 @@ export function render(c: Case): string {
   ].join("\n\n");
 }
 
-export const JUDGE_PROMPT = readFileSync(new URL("./judge-prompt.md", import.meta.url), "utf8");
+/** What every revision must keep to, whatever the honed-judge skill says: the cap, safety and the decision's form. */
+export const JUDGE_CONTRACT = readFileSync(new URL("./judge-contract.md", import.meta.url), "utf8");
+
+export const systemPrompt = (guidance: string) => `${JUDGE_CONTRACT}\n\n# Your judging guidance (the honed-judge skill)\n\n${guidance.trim()}\n`;
 
 export interface ClaudeJudgeOptions {
   /** The Claude Code executable. */
@@ -95,7 +100,7 @@ export class ClaudeJudge implements Judge {
       "-p",
       "--output-format", "json",
       "--json-schema", JSON.stringify(decisionJsonSchema()),
-      "--system-prompt", JUDGE_PROMPT,
+      "--system-prompt", systemPrompt(c.guidance),
       "--tools", "",
       "--strict-mcp-config",
       "--setting-sources", "",

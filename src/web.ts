@@ -5,7 +5,7 @@ import { html, raw } from "hono/html";
 import type { HtmlEscapedString } from "hono/utils/html";
 import { callerOf } from "./auth.ts";
 import { TAGLINE, WORDMARK } from "./banner.ts";
-import { LOCAL_CALLER, Refusal, SKILL_FILE, type Caller, type Feedback, type Judgment } from "./domain.ts";
+import { JUDGE_SKILL, LOCAL_CALLER, Refusal, SKILL_FILE, type Caller, type Feedback, type Judgment } from "./domain.ts";
 import type { Hub, SkillSummary } from "./hub.ts";
 import { mcpServer } from "./mcp.ts";
 
@@ -106,6 +106,11 @@ button.primary { background:var(--edge); color:var(--bg); } button.primary:hover
 .empty { border:1px dashed var(--line); border-radius:10px; padding:22px; text-align:center; color:var(--muted); }
 .back { font-family:var(--mono); font-size:13px; }
 footer { margin-top:56px; padding-top:14px; border-top:1px dashed var(--line); font-family:var(--mono); font-size:12px; color:var(--muted); }
+footer details { display:inline; margin:0; }
+footer details[open] { display:block; margin-top:8px; font-family:initial; }
+footer summary { font-family:var(--mono); display:inline; color:var(--edge); list-style:none; }
+footer summary::-webkit-details-marker { display:none; }
+.note { border-left:3px solid var(--edge); background:var(--edge-soft); border-radius:6px; padding:10px 14px; margin:14px 0; font-size:14px; }
 `;
 
 /** Sends a form as JSON with the write header and shows a refusal beside it in the server's words; "/" focuses search. */
@@ -130,7 +135,7 @@ document.addEventListener("keydown", (ev) => {
 
 const FAVICON = `data:image/svg+xml,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><text x="16" y="25" font-size="26" text-anchor="middle" fill="#14a39a">✦</text></svg>')}`;
 
-function page(title: string, body: Html, opts: { refresh?: boolean; viewer?: Viewer; version?: string } = {}): Html {
+function page(title: string, body: Html, opts: { refresh?: boolean; viewer?: Viewer; version?: string; footer?: Html } = {}): Html {
   const who = opts.viewer && !opts.viewer.local ? html`<span class="who small muted">${opts.viewer.caller.name}${opts.viewer.caller.admin ? " (admin)" : ""} · <a href="/logout">sign out</a></span>` : "";
   return html`<!doctype html>
 <html lang="en">
@@ -146,7 +151,7 @@ function page(title: string, body: Html, opts: { refresh?: boolean; viewer?: Vie
     <main>
       <header class="top"><a class="brand" href="/"><span class="star">✦</span> honed</a><span class="muted small">share and hone skills across your organization</span>${who}</header>
       ${body}
-      <footer>honed${opts.version ? ` v${opts.version}` : ""} · agents connect at <span>/mcp</span></footer>
+      <footer>honed${opts.version ? ` v${opts.version}` : ""}${opts.footer ?? ""}</footer>
     </main>
     <script>${raw(SCRIPT)}</script>
   </body>
@@ -198,6 +203,7 @@ function outcome(j: Judgment): Html {
   if (j.state === "running") return pill("honing", "running");
   if (j.state === "failed") return pill("failed", "failed");
   if (j.by === "person") return pill(`reverted → v${j.version}`, "changed");
+  if (j.by === "starter") return pill("shipped with honed");
   return j.changed ? pill(`honed → v${j.version}`, "changed") : pill("unchanged");
 }
 
@@ -225,9 +231,9 @@ function skillCard(s: SkillSummary, cap: number, match?: string): Html {
   </a>`;
 }
 
-function connect(origin: string, viewer: Viewer, open: boolean): Html {
-  return html`<details class="card connect" ${open ? "open" : ""}><summary>Connect Claude Code</summary>
-    <p class="small muted">One command, once:</p>
+function connect(origin: string, viewer: Viewer, open: boolean, inline = false): Html {
+  return html`<details class="${inline ? "" : "card"} connect" ${open ? "open" : ""}><summary>${inline ? "connect an agent" : "Connect an agent"}</summary>
+    ${open && !inline ? html`<p class="small">honed is running, and no agent has connected yet. Any MCP client works; for Claude Code, one command, once:</p>` : html`<p class="small muted">Any MCP client works at <code>${origin}/mcp</code>. For Claude Code, one command, once:</p>`}
     <pre>claude mcp add --transport http --scope user honed ${origin}/mcp${viewer.local ? "" : ' --header "Authorization: Bearer <your token>"'}</pre>
     <p class="small muted">Or the plugin, which also asks each session for feedback on the skills it used:</p>
     <pre>claude plugin marketplace add dakotacolorado/honed
@@ -239,7 +245,8 @@ claude plugin install honed@honed --config url=${origin}</pre>
 function home(hub: Hub, origin: string, viewer: Viewer, q: string, version: string): Html {
   const results = q.trim() ? hub.search(q, 50) : null;
   const skills = hub.list();
-  const judgments = hub.store.recentJudgments(12);
+  const judgments = hub.store.recentJudgments(30).filter((j) => j.by !== "starter").slice(0, 12);
+  const connected = hub.store.anyFeedback();
   return page(
     "honed",
     html`<div class="hero">
@@ -248,7 +255,7 @@ function home(hub: Hub, origin: string, viewer: Viewer, q: string, version: stri
         <p class="tagline">${TAGLINE}</p>
         <p class="muted">Agents get a skill before a task and submit feedback after. Each skill is revised from what they say, and every version is kept.</p>
       </div>
-      ${connect(origin, viewer, skills.length === 0)}
+      ${connected ? "" : connect(origin, viewer, true)}
       <form class="search" method="get" action="/" role="search">
         <input type="search" name="q" value="${q}" placeholder="search skills…" aria-label="Search skills" />
         <button type="submit">Search</button>
@@ -262,7 +269,7 @@ function home(hub: Hub, origin: string, viewer: Viewer, q: string, version: stri
               ? html`<div class="grid">${skills.map((s) => skillCard(s, hub.maxChars))}</div>`
               : html`<div class="empty">No skills yet.<br />Ask an agent to <code>submit_feedback</code> under a new name with a draft <code>SKILL.md</code>, and the first one will be honed into shape.</div>`}`}
       ${judgments.length ? html`<h2>recently honed</h2><div class="feed">${judgments.map(feedLine)}</div>` : ""}`,
-    { refresh: !results && judgments.some((j) => j.state === "running"), viewer, version },
+    { refresh: !results && judgments.some((j) => j.state === "running"), viewer, version, footer: connected ? html` · ${connect(origin, viewer, false, true)}` : undefined },
   );
 }
 
@@ -282,6 +289,9 @@ async function skillPage(hub: Hub, name: string, viewer: Viewer, version: string
       <h1 style="margin-top:14px">${name} ${pill(`v${skill.version}`)} ${judging ? pill("honing", "running") : ""}</h1>
       <p>${summary.description}</p>
       <div class="meta">${size(summary.chars, hub.maxChars)}<span>${summary.feedback} feedback on this version</span>${waiting ? pill(`${waiting} waiting`, "waiting") : ""}</div>
+      ${name === JUDGE_SKILL
+        ? html`<div class="note">This is how honed revises every skill, including this one. Feedback on it is welcome, and waits for an admin to choose <b>Revise now</b>; honed never revises its own judgment on its own. Its safety rules and the cap live in honed itself and can't be edited away.</div>`
+        : ""}
       ${admin && !judging && waiting ? action(`/api/skills/${name}/judge`, "Revise now") : ""}
 
       <h2>files</h2>
@@ -295,8 +305,9 @@ async function skillPage(hub: Hub, name: string, viewer: Viewer, version: string
         ${versions.map((v, i) => {
           const j = hub.store.judgment(v.judgment);
           const person = j?.by === "person";
+          const how = person ? `${personName(j!)} reverted it` : j?.by === "starter" ? "shipped with honed" : "honed";
           return html`<div class="event ${person ? "person" : ""}">
-            <div><b class="mono">v${v.version}</b> ${v.note} <span class="muted small">· ${person ? `${personName(j!)} reverted it` : "honed"} ${ago(v.at)} · <a href="/judgments/${v.judgment}">why</a></span></div>
+            <div><b class="mono">v${v.version}</b> ${v.note} <span class="muted small">· ${how} ${ago(v.at)} · <a href="/judgments/${v.judgment}">why</a></span></div>
             <details><summary class="small muted">what changed</summary>${diff(diffs[i] ?? "")}</details>
             ${admin && v.version < skill.version
               ? html`<details><summary class="small muted">revert to v${v.version}</summary>${action(`/api/skills/${name}/revert`, `Revert to v${v.version}`, { reason: "Why? (kept in the history)", extra: html`<input type="hidden" name="version" value="${v.version}" />` })}</details>`
@@ -317,6 +328,7 @@ async function judgmentPage(hub: Hub, id: string, viewer: Viewer, version: strin
     j.state === "running" ? `Honing ${j.skill}…` :
     j.state === "failed" ? `${j.skill} could not be revised` :
     j.by === "person" ? `${personName(j)} reverted ${j.skill} → v${j.version}` :
+    j.by === "starter" ? `${j.skill} shipped with honed` :
     j.changed ? `${j.skill} honed → v${j.version}` : `${j.skill} left unchanged`;
   return page(
     `${j.skill}${j.version ? ` v${j.version}` : ""} · honed`,
