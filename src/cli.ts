@@ -17,7 +17,7 @@ const { version } = JSON.parse(readFileSync(new URL("../package.json", import.me
 const color = Boolean(process.stdout.isTTY) && !process.env.NO_COLOR;
 const c = palette(color);
 
-const USAGE = `${c.ember(WORDMARK)}  ${c.dim(`v${version}`)}
+const USAGE = `${c.edge(WORDMARK)}  ${c.dim(`v${version}`)}
 
 ${c.bold(TAGLINE)}
 A shared skills library over MCP. Agents get skills and submit feedback; each skill is revised from it.
@@ -102,7 +102,7 @@ const port = Number(values.port ?? process.env.HONED_PORT ?? 4321);
 const maxChars = Number(values["max-chars"] ?? process.env.HONED_MAX_CHARS ?? DEFAULT_MAX_CHARS);
 if (!Number.isInteger(maxChars) || maxChars < 1000) fail("--max-chars must be a whole number of at least 1000");
 const judge = values["no-judge"] ? null : new ClaudeJudge({ model: values["judge-model"], command: values.claude });
-const log = (line: string) => console.log(`${c.dim(new Date().toTimeString().slice(0, 8))} ${c.ember("✦")} ${line}`);
+const log = (line: string) => console.log(`${c.dim(new Date().toTimeString().slice(0, 8))} ${c.edge("✦")} ${line}`);
 
 const hub = await Hub.open(dir, judge, { log, maxChars });
 if (shared && hub.store.tokens().length === 0) {

@@ -18,5 +18,5 @@ test("names the token header once tokens exist, and has no color codes unless as
   assert.match(text, /--header "Authorization: Bearer <token>"/);
   assert.match(text, /2 tokens: every request needs one/);
   assert.doesNotMatch(text, /\x1b\[/);
-  assert.match(banner({ ...info, color: true }), /\x1b\[38;5;173m/);
+  assert.match(banner({ ...info, color: true }), /\x1b\[38;5;37m/);
 });
