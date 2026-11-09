@@ -89,4 +89,6 @@ npm run typecheck
 npm run build
 ```
 
-MIT licensed.
+## License
+
+[MIT](LICENSE) © 2026 Dakota Parker
