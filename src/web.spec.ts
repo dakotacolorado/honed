@@ -214,6 +214,21 @@ describe("a server with tokens", () => {
     assert.equal(((await asAdmin.json()) as { actor: string }).actor, "dakota");
   });
 
+  test("serves prefixed skills at their own paths, for agents and on the page", async () => {
+    const client = await connect(s.base, agent);
+    await call(client, "submit_feedback", { name: "team/deploys", feedback: "make it", files: [{ path: "SKILL.md", content: "---\nname: deploys\ndescription: Deploying.\n---\n" }] });
+    await s.hub.idle();
+    assert.equal((await call(client, "get_skill", { name: "team/deploys" })).value.name, "team/deploys");
+    await client.close();
+    const auth = { authorization: `Bearer ${admin}` };
+    assert.equal((await fetch(`${s.base}/api/skills/team/deploys`, { headers: auth })).status, 200);
+    const page = await (await fetch(`${s.base}/skills/team/deploys`, { headers: auth })).text();
+    assert.match(page, /<title>team\/deploys · honed<\/title>/);
+    assert.match(await (await fetch(s.base, { headers: auth })).text(), /<h3 class="group">team\/<\/h3>/);
+    const edited = await fetch(`${s.base}/api/skills/team/deploys/edit`, { method: "POST", headers: { ...WRITE, ...auth }, body: JSON.stringify({ path: "SKILL.md", content: "---\nname: deploys\ndescription: Deploying, edited.\n---\n" }) });
+    assert.equal(edited.status, 200);
+  });
+
   test("lets only an admin edit or delete a skill, and tells an agent what happens to its feedback", async () => {
     const asAgent = await fetch(`${s.base}/api/skills/x/edit`, { method: "POST", headers: { ...WRITE, authorization: `Bearer ${agent}` }, body: JSON.stringify({ path: "SKILL.md", content: "---\nname: x\ndescription: e\n---\n" }) });
     assert.equal(asAgent.status, 403);

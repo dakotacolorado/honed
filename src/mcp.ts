@@ -82,7 +82,7 @@ export function mcpServer(hub: Hub, version: string, caller: Caller, local: bool
       title: "Submit feedback on a skill",
       description: `What happened when you used a skill, and what should change. Include files to suggest exact text. Under a name no skill has yet, it asks for that skill: say what it is for and draft its ${SKILL_FILE}. Skills are revised from this feedback.`,
       inputSchema: {
-        name: z.string().describe("The skill: lowercase letters, digits and hyphens."),
+        name: z.string().describe("The skill, e.g. default/code-review: an optional prefix for its group, then lowercase letters, digits and hyphens."),
         feedback: z.string().describe("What happened in your work, and what should change."),
         files: z
           .array(z.object({ path: z.string(), content: z.string(), executable: z.boolean().optional() }))

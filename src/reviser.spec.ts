@@ -57,7 +57,7 @@ describe("the API judge", () => {
   }
   const message = (text: string, stop_reason = "end_turn") => ({ stop_reason, stop_details: null, content: [{ type: "text", text }] });
 
-  test("asks for the decision as structured output, with the fixed brief and the honed-judge guidance, and a fallback on refusal", async () => {
+  test("asks for the decision as structured output, with the fixed brief and the honed/judge guidance, and a fallback on refusal", async () => {
     const { client, sent } = stub(message(JSON.stringify(decision)));
     assert.deepEqual(await new ApiJudge({ client }).decide(c), decision);
     const p = sent[0];

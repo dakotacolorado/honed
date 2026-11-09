@@ -35,7 +35,7 @@ export interface Case {
   precedent: Judgment[];
   /** Why the judge's last attempt at this same case was refused, for it to correct. */
   failure: string | null;
-  /** How to judge: the body of the honed-judge skill's current version. */
+  /** How to judge: the body of the honed/judge skill's current version. */
   guidance: string;
 }
 
@@ -74,10 +74,10 @@ export function render(c: Case): string {
   ].join("\n\n");
 }
 
-/** What every revision must keep to, whatever the honed-judge skill says: the cap, safety and the decision's form. */
+/** What every revision must keep to, whatever the honed/judge skill says: the cap, safety and the decision's form. */
 export const JUDGE_CONTRACT = readFileSync(new URL("./judge-contract.md", import.meta.url), "utf8");
 
-export const systemPrompt = (guidance: string) => `${JUDGE_CONTRACT}\n\n# Your judging guidance (the honed-judge skill)\n\n${guidance.trim()}\n`;
+export const systemPrompt = (guidance: string) => `${JUDGE_CONTRACT}\n\n# Your judging guidance (the honed/judge skill)\n\n${guidance.trim()}\n`;
 
 export interface ClaudeJudgeOptions {
   /** The Claude Code executable. */

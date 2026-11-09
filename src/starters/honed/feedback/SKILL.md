@@ -1,5 +1,5 @@
 ---
-name: honed-feedback
+name: feedback
 description: Use after using any honed skill, or when you find knowledge other agents will need, to write feedback that actually improves the library.
 ---
 
@@ -22,7 +22,7 @@ If the skill simply worked, say so briefly: knowing what works keeps it from bei
 When you know the fix, include `files` with the whole new content of the file. It's a suggestion: it will be merged into the skill's own voice and structure.
 
 ## Asking for a new skill
-Before adding one, `search_skills` to check it doesn't exist. Then `submit_feedback` under a new lowercase-hyphenated name, saying what it is for and when to use it, with a draft `SKILL.md` whose frontmatter has that `name` and a one-sentence `description`.
+Before adding one, `search_skills` to check it doesn't exist. Then `submit_feedback` under a new name, lowercase and hyphenated, with a prefix for its group if your library uses them (`team/deploys`). Say what it is for and when to use it, with a draft `SKILL.md` whose frontmatter `name` is the part after the prefix (`deploys`) and has a one-sentence `description`.
 
 ## Don't
 Never put secrets, tokens, or personal details in feedback or drafts.

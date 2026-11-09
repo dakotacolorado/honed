@@ -45,10 +45,10 @@ test("a session that errs fails with what Claude Code said", async () => {
   }
 });
 
-test("the system prompt is the fixed brief, then the honed-judge skill's guidance, and the brief wins", async () => {
+test("the system prompt is the fixed brief, then the honed/judge skill's guidance, and the brief wins", async () => {
   const { systemPrompt, JUDGE_CONTRACT } = await import("./judge.ts");
   const prompt = systemPrompt("## Weigh the evidence\nBe careful.");
   assert.ok(prompt.startsWith(JUDGE_CONTRACT));
   assert.match(prompt, /Where it conflicts with this brief, this brief wins/);
-  assert.match(prompt, /# Your judging guidance \(the honed-judge skill\)\n\n## Weigh the evidence\nBe careful\.\n$/);
+  assert.match(prompt, /# Your judging guidance \(the honed\/judge skill\)\n\n## Weigh the evidence\nBe careful\.\n$/);
 });

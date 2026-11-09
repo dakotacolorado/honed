@@ -5,7 +5,7 @@ export const SKILL_FILE = "SKILL.md";
 export const DEFAULT_MAX_CHARS = 20_000;
 export const MAX_FILES = 100;
 /** The skill holding the reviser's own judging guidance: shipped with honed, revised only when an admin asks. */
-export const JUDGE_SKILL = "honed-judge";
+export const JUDGE_SKILL = "honed/judge";
 /** Feedback without a draft waits for this many on a skill before the judge looks; a draft is judged at once. */
 export const FEEDBACK_BATCH = 3;
 /** Failed judgments in a row before a skill waits for new feedback. */
@@ -92,14 +92,23 @@ export class Refusal extends Error {
 export const newId = () => randomUUID();
 export const now = () => new Date().toISOString();
 
-const NAME = /^[a-z0-9]+(-[a-z0-9]+)*$/;
+const PART = "[a-z0-9]+(?:-[a-z0-9]+)*";
+const NAME = new RegExp(`^(?:${PART}/)?${PART}$`);
+/** A skill name in a URL path: an optional prefix, then the name. */
+export const NAME_ROUTE = `{${PART}(?:/${PART})?}`;
 
+/** A skill's name is its own, optionally under one prefix that groups it: `git-commits`, `default/git-commits`. */
 export function checkName(name: string): string {
-  if (!NAME.test(name) || name.length > 64) {
-    throw new Refusal(`"${name}" must be lowercase letters, digits and single hyphens, at most 64 characters`);
+  if (!NAME.test(name) || name.split("/").some((p) => p.length > 64)) {
+    throw new Refusal(`"${name}" must be lowercase letters, digits and single hyphens, optionally under one prefix like team/, at most 64 characters a part`);
   }
   return name;
 }
+
+/** The part after the prefix: what a SKILL.md's frontmatter names, since Claude Code's skill names have no slash. */
+export const baseName = (name: string) => name.slice(name.lastIndexOf("/") + 1);
+/** The prefix a skill is grouped under, or "" for none. */
+export const prefixOf = (name: string) => (name.includes("/") ? name.slice(0, name.indexOf("/")) : "");
 
 export function checkPath(path: string): string {
   const parts = path.split("/");
@@ -155,7 +164,9 @@ export function checkSkill(name: string, files: SkillFile[], maxChars: number): 
   const skillMd = files.find((f) => f.path === SKILL_FILE);
   if (!skillMd) throw new Refusal(`a skill must have a ${SKILL_FILE}`);
   const fm = frontmatter(skillMd.content);
-  if (fm.name !== name) throw new Refusal(`${SKILL_FILE}'s frontmatter must say name: ${name}`);
+  if (fm.name !== baseName(name)) {
+    throw new Refusal(`${SKILL_FILE}'s frontmatter must say name: ${baseName(name)}${name.includes("/") ? ` (the part after ${prefixOf(name)}/, since Claude Code's skill names have no slash)` : ""}`);
+  }
   if (!fm.description) throw new Refusal(`${SKILL_FILE}'s frontmatter must have a description`);
   if (files.length > MAX_FILES) throw new Refusal(`a skill holds at most ${MAX_FILES} files`);
   const size = textSize(files);

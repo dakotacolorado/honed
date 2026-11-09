@@ -52,7 +52,7 @@ export type Next =
 export interface HubOptions {
   /** The hard cap on a skill's text, all its files together. */
   maxChars?: number;
-  /** Add the starter skills on first run, and honed-judge whenever it is missing (default true); false adds nothing, for tests. */
+  /** Add the starter skills on first run, and honed/judge whenever it is missing (default true); false adds nothing, for tests. */
   starters?: boolean;
   log?: (line: string) => void;
 }
@@ -70,6 +70,15 @@ async function readStarter(name: string): Promise<SkillFile[]> {
     files.push({ path: relative(root, path), content: await readFile(path, "utf8"), executable: ((await stat(path)).mode & 0o111) !== 0 });
   }
   return files.sort((a, b) => a.path.localeCompare(b.path));
+}
+
+/** Every starter shipped with honed: each folder holding a SKILL.md, named by its path, prefix included. */
+async function starterNames(): Promise<string[]> {
+  const entries = await readdir(STARTERS, { recursive: true, withFileTypes: true });
+  return entries
+    .filter((e) => e.isFile() && e.name === SKILL_FILE)
+    .map((e) => relative(STARTERS, e.parentPath).split("\\").join("/"))
+    .sort();
 }
 
 /** A SKILL.md without its frontmatter. */
@@ -112,10 +121,10 @@ export class Hub {
     this.store.close();
   }
 
-  /** Adds the starters the first time honed runs on a library, and honed-judge whenever it is missing. */
+  /** Adds the starters the first time honed runs on a library, and honed/judge whenever it is missing. */
   private async seed(starters: boolean): Promise<void> {
     if (!starters) return;
-    const names = this.store.meta("seeded") ? [JUDGE_SKILL] : (await readdir(STARTERS)).sort();
+    const names = this.store.meta("seeded") ? [JUDGE_SKILL] : await starterNames();
     for (const name of names) {
       if (this.store.skill(name)) continue;
       const files = await readStarter(name);
@@ -128,7 +137,7 @@ export class Hub {
     this.store.setMeta("seeded", now());
   }
 
-  /** The reviser's judging guidance: the honed-judge skill's current SKILL.md, without its frontmatter. */
+  /** The reviser's judging guidance: the honed/judge skill's current SKILL.md, without its frontmatter. */
   async guidance(): Promise<string> {
     return body((await this.current(JUDGE_SKILL)).find((f) => f.path === SKILL_FILE)?.content ?? "");
   }
@@ -358,7 +367,7 @@ export class Hub {
   /** The other skills the judge checks for overlap: all of them in a small library, else the closest by text. */
   private neighbours(name: string): { name: string; description: string }[] {
     const all = this.list().filter((s) => s.name !== name);
-    const near = all.length <= 30 ? all : this.search(`${name.replace(/-/g, " ")} ${this.descriptions.get(name) ?? ""}`, 31).filter((s) => s.name !== name).slice(0, 30);
+    const near = all.length <= 30 ? all : this.search(`${name.replace(/[-/]/g, " ")} ${this.descriptions.get(name) ?? ""}`, 31).filter((s) => s.name !== name).slice(0, 30);
     return near.map((s) => ({ name: s.name, description: s.description }));
   }
 

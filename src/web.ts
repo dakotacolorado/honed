@@ -5,7 +5,7 @@ import { html, raw } from "hono/html";
 import type { HtmlEscapedString } from "hono/utils/html";
 import { callerOf } from "./auth.ts";
 import { TAGLINE, WORDMARK } from "./banner.ts";
-import { JUDGE_SKILL, LOCAL_CALLER, Refusal, SKILL_FILE, type Caller, type Feedback, type Judgment } from "./domain.ts";
+import { JUDGE_SKILL, LOCAL_CALLER, NAME_ROUTE, prefixOf, Refusal, SKILL_FILE, type Caller, type Feedback, type Judgment } from "./domain.ts";
 import type { Hub, SkillSummary } from "./hub.ts";
 import { mcpServer } from "./mcp.ts";
 
@@ -108,6 +108,7 @@ form.act label { width:100%; font-size:13px; color:var(--muted); }
 .prose { white-space:pre-wrap; }
 .empty { border:1px dashed var(--line); border-radius:10px; padding:22px; text-align:center; color:var(--muted); }
 .back { font-family:var(--mono); font-size:13px; }
+h3.group { font-family:var(--mono); font-size:13px; font-weight:600; color:var(--muted); margin:18px 0 8px; }
 footer { margin-top:56px; padding-top:14px; border-top:1px dashed var(--line); font-family:var(--mono); font-size:12px; color:var(--muted); }
 footer details { display:inline; margin:0; }
 footer details[open] { display:block; margin-top:8px; font-family:initial; }
@@ -234,6 +235,14 @@ function skillCard(s: SkillSummary, cap: number, match?: string): Html {
   </a>`;
 }
 
+/** Skills by prefix: your own groups first, then default/, then honed/'s, and unprefixed skills before all of them. */
+function groups(skills: SkillSummary[]): [string, SkillSummary[]][] {
+  const by = new Map<string, SkillSummary[]>();
+  for (const s of skills) by.set(prefixOf(s.name), [...(by.get(prefixOf(s.name)) ?? []), s]);
+  const rank = (p: string) => (p === "" ? 0 : p === "default" ? 2 : p === "honed" ? 3 : 1);
+  return [...by.entries()].sort(([a], [b]) => rank(a) - rank(b) || a.localeCompare(b));
+}
+
 function connect(origin: string, viewer: Viewer, open: boolean, inline = false): Html {
   return html`<details class="${inline ? "" : "card"} connect" ${open ? "open" : ""}><summary>${inline ? "connect an agent" : "Connect an agent"}</summary>
     ${open && !inline ? html`<p class="small">honed is running, and no agent has connected yet. Any MCP client works; for Claude Code, one command, once:</p>` : html`<p class="small muted">Any MCP client works at <code>${origin}/mcp</code>. For Claude Code, one command, once:</p>`}
@@ -269,7 +278,7 @@ function home(hub: Hub, origin: string, viewer: Viewer, q: string, version: stri
             ${results.length ? html`<div class="grid">${results.map((r) => skillCard(r, hub.maxChars, r.snippet))}</div>` : html`<div class="empty">No skill mentions that. <a href="/">See them all</a>.</div>`}`
         : html`<h2>skills${skills.length ? ` (${skills.length})` : ""}</h2>
             ${skills.length
-              ? html`<div class="grid">${skills.map((s) => skillCard(s, hub.maxChars))}</div>`
+              ? groups(skills).map(([prefix, list]) => html`${prefix ? html`<h3 class="group">${prefix}/</h3>` : ""}<div class="grid">${list.map((s) => skillCard(s, hub.maxChars))}</div>`)
               : html`<div class="empty">No skills yet.<br />Ask an agent to <code>submit_feedback</code> under a new name with a draft <code>SKILL.md</code>, and the first one will be honed into shape.</div>`}`}
       ${judgments.length ? html`<h2>recently honed</h2><div class="feed">${judgments.map(feedLine)}</div>` : ""}`,
     { refresh: !results && judgments.some((j) => j.state === "running"), viewer, version, footer: connected ? html` · ${connect(origin, viewer, false, true)}` : undefined },
@@ -446,33 +455,33 @@ export function app(hub: Hub, version: string, opts: AppOptions = {}): Hono<Env>
     return next();
   });
   const body = async (c: Context) => ((await c.req.json().catch(() => ({}))) ?? {}) as Record<string, unknown>;
-  writes.post("/skills/:name/revert", async (c) => {
+  writes.post(`/skills/:name${NAME_ROUTE}/revert`, async (c) => {
     const b = await body(c);
     return c.json(await hub.revert(c.req.param("name"), Number(field(b, "version") || b.version), field(b, "reason"), c.get("viewer").caller.name));
   });
-  writes.post("/skills/:name/edit", async (c) => {
+  writes.post(`/skills/:name${NAME_ROUTE}/edit`, async (c) => {
     const b = await body(c);
     const remove = field(b, "remove");
     const change = remove ? { remove: [remove] } : { write: [{ path: field(b, "path").trim(), content: field(b, "content") }] };
     if (!remove && !change.write![0]!.path) throw new Refusal("a file needs a path");
     return c.json(await hub.edit(c.req.param("name"), change, field(b, "reason"), c.get("viewer").caller.name));
   });
-  writes.post("/skills/:name/delete", async (c) => c.json(await hub.delete(c.req.param("name"), field(await body(c), "reason"), c.get("viewer").caller.name)));
-  writes.post("/skills/:name/judge", (c) => (hub.judgeNow(c.req.param("name")), c.json({ revising: true })));
+  writes.post(`/skills/:name${NAME_ROUTE}/delete`, async (c) => c.json(await hub.delete(c.req.param("name"), field(await body(c), "reason"), c.get("viewer").caller.name)));
+  writes.post(`/skills/:name${NAME_ROUTE}/judge`, (c) => (hub.judgeNow(c.req.param("name")), c.json({ revising: true })));
   web.route("/api", writes);
 
   web.get("/api/skills", (c) => {
     const q = c.req.query("q");
     return c.json(q ? hub.search(q, Number(c.req.query("limit") ?? 20)) : hub.list());
   });
-  web.get("/api/skills/:name", async (c) => {
+  web.get(`/api/skills/:name${NAME_ROUTE}`, async (c) => {
     const name = c.req.param("name");
     return c.json({ ...hub.skill(name), files: await hub.current(name), versions: hub.store.versions(name), feedback: hub.store.feedback(name) });
   });
   web.get("/api/judgments/:id", (c) => c.json({ ...hub.judgment(c.req.param("id")), feedback: hub.store.feedbackOf(c.req.param("id")) }));
 
   web.get("/", (c) => c.html(home(hub, new URL(c.req.url).origin, c.get("viewer"), c.req.query("q") ?? "", version)));
-  web.get("/skills/:name", async (c) => c.html(await skillPage(hub, c.req.param("name"), c.get("viewer"), version)));
+  web.get(`/skills/:name${NAME_ROUTE}`, async (c) => c.html(await skillPage(hub, c.req.param("name"), c.get("viewer"), version)));
   web.get("/judgments/:id", async (c) => c.html(await judgmentPage(hub, c.req.param("id"), c.get("viewer"), version)));
 
   return web;
