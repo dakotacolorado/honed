@@ -4,18 +4,22 @@ import {
   applyChange,
   checkChange,
   checkName,
+  checkCap,
   checkSkillFiles,
-  FEEDBACK_BATCH,
+  DEFAULT_MAX_CHARS,
   frontmatter,
   JUDGMENT_ATTEMPTS,
+  maturity,
   newId,
   now,
   PRECEDENT,
   Refusal,
   SKILL_FILE,
+  textSize,
   type Change,
   type Feedback,
   type Judgment,
+  type Maturity,
   type Policy,
   type Proposal,
   type Ruler,
@@ -37,9 +41,18 @@ export interface SkillSummary {
   /** Feedback on the current version. */
   verdicts: Record<string, number>;
   updatedAt: string;
+  maturity: Maturity;
+}
+
+export interface SearchResult extends SkillSummary {
+  /** Where the query matched, the match in «». */
+  snippet: string;
 }
 
 export interface HubOptions {
+  /** The hard cap on a skill's text, all its files together. */
+  maxChars?: number;
+  /** Feedback that starts a judgment, whatever the skill's stage; for tests. */
   feedbackBatch?: number;
   log?: (line: string) => void;
 }
@@ -51,9 +64,11 @@ export class Hub {
   readonly store: Store;
   readonly library: Library;
   private judge: Judge | null;
-  private feedbackBatch: number;
+  readonly maxChars: number;
+  private feedbackBatch: number | undefined;
   private log: (line: string) => void;
   private descriptions = new Map<string, string>();
+  private sizes = new Map<string, number>();
   private running = new Map<string, Promise<void>>();
   private dirty = new Set<string>();
   private chain: Promise<unknown> = Promise.resolve();
@@ -62,7 +77,8 @@ export class Hub {
     this.store = store;
     this.library = library;
     this.judge = judge;
-    this.feedbackBatch = opts.feedbackBatch ?? FEEDBACK_BATCH;
+    this.maxChars = opts.maxChars ?? DEFAULT_MAX_CHARS;
+    this.feedbackBatch = opts.feedbackBatch;
     this.log = opts.log ?? (() => {});
   }
 
@@ -72,7 +88,7 @@ export class Hub {
     await library.init();
     const hub = new Hub(new Store(join(dir, "honed.db")), library, judge, opts);
     hub.store.failAbandoned(now());
-    for (const s of hub.store.skills()) hub.descriptions.set(s.name, frontmatter((await hub.fileAt(s.name, s.version, SKILL_FILE)) ?? "").description ?? "");
+    for (const s of hub.store.skills()) hub.remember(s.name, await hub.files(s.name, s.version));
     const waiting = new Set([...hub.store.openProposals().map((p) => p.skill), ...hub.store.skills().map((s) => s.name)]);
     for (const name of waiting) hub.schedule(name);
     return hub;
@@ -89,23 +105,45 @@ export class Hub {
     return next;
   }
 
+  /** Keeps what reading a skill's files on every list would cost: its description, its size, its entry in the search index. */
+  private remember(name: string, files: SkillFile[]): void {
+    const description = frontmatter(files.find((f) => f.path === SKILL_FILE)?.content ?? "").description ?? "";
+    this.descriptions.set(name, description);
+    this.sizes.set(name, textSize(files));
+    this.store.index(name, description, files.map((f) => f.content).join("\n\n"));
+  }
+
   // Reading
 
-  list(query?: string): SkillSummary[] {
-    const q = query?.toLowerCase().trim();
+  maturity(name: string): Maturity {
+    return maturity(this.store.skill(name)?.version ?? 0, this.sizes.get(name) ?? 0, this.maxChars);
+  }
+
+  private summary(s: Skill, open: Proposal[]): SkillSummary {
+    return {
+      name: s.name,
+      description: this.descriptions.get(s.name) ?? "",
+      version: s.version,
+      policy: s.policy,
+      openProposals: open.filter((p) => p.skill === s.name).length,
+      verdicts: this.store.verdictCounts(s.name, s.version),
+      updatedAt: this.store.version(s.name, s.version)?.at ?? s.createdAt,
+      maturity: this.maturity(s.name),
+    };
+  }
+
+  list(): SkillSummary[] {
     const open = this.store.openProposals();
-    return this.store
-      .skills()
-      .map((s) => ({
-        name: s.name,
-        description: this.descriptions.get(s.name) ?? "",
-        version: s.version,
-        policy: s.policy,
-        openProposals: open.filter((p) => p.skill === s.name).length,
-        verdicts: this.store.verdictCounts(s.name, s.version),
-        updatedAt: this.store.version(s.name, s.version)?.at ?? s.createdAt,
-      }))
-      .filter((s) => !q || s.name.includes(q) || s.description.toLowerCase().includes(q));
+    return this.store.skills().map((s) => this.summary(s, open));
+  }
+
+  /** Skills whose name, description or text match any word of `query`, best match first. */
+  search(query: string, limit = 10): SearchResult[] {
+    const open = this.store.openProposals();
+    return this.store.search(query, limit).flatMap((hit) => {
+      const skill = this.store.skill(hit.name);
+      return skill ? [{ ...this.summary(skill, open), snippet: hit.snippet }] : [];
+    });
   }
 
   skill(name: string): Skill {
@@ -120,10 +158,6 @@ export class Hub {
     const v = this.store.version(name, version);
     if (!v) throw new Refusal(`${name} has no version ${version}`, 404);
     return this.library.files(name, v.commit);
-  }
-
-  private async fileAt(name: string, version: number, path: string): Promise<string | undefined> {
-    return (await this.files(name, version)).find((f) => f.path === path)?.content;
   }
 
   async current(name: string): Promise<SkillFile[]> {
@@ -172,7 +206,9 @@ export class Hub {
     if (!input.why.trim()) throw new Refusal("a proposal needs a why: what happened that it would have helped with");
     const proposal = await this.exclusive(async () => {
       const skill = this.store.skill(name);
-      checkSkillFiles(name, applyChange(await this.current(name), change));
+      const after = applyChange(await this.current(name), change);
+      checkSkillFiles(name, after);
+      checkCap(after, this.maxChars);
       const p: Proposal = {
         id: newId(),
         skill: name,
@@ -237,33 +273,36 @@ export class Hub {
 
   // What a person does
 
-  merge(id: string, reason: string): Promise<Judgment> {
+  merge(id: string, reason: string, actor = "you"): Promise<Judgment> {
     return this.exclusive(async () => {
       const p = this.openProposal(id);
       const files = applyChange(await this.current(p.skill), p.change);
       checkSkillFiles(p.skill, files);
-      const j = this.started(p.skill, "human", reason || "Merged by hand.");
+      checkCap(files, this.maxChars);
+      const j = this.started(p.skill, "human", reason || "Merged by hand.", actor);
       const version = await this.commit(p.skill, files, p.title, j);
       this.finish(j, "change", version, [{ id: p.id, ruling: "merged", reason: j.reasoning }], []);
       return j;
     });
   }
 
-  reject(id: string, reason: string): Promise<Judgment> {
+  reject(id: string, reason: string, actor = "you"): Promise<Judgment> {
     return this.exclusive(async () => {
       const p = this.openProposal(id);
-      const j = this.started(p.skill, "human", reason || "Rejected by hand.");
+      const j = this.started(p.skill, "human", reason || "Rejected by hand.", actor);
       this.finish(j, "no_change", null, [{ id: p.id, ruling: "rejected", reason: j.reasoning }], []);
       return j;
     });
   }
 
-  revert(name: string, to: number, reason: string): Promise<Judgment> {
+  revert(name: string, to: number, reason: string, actor = "you"): Promise<Judgment> {
     return this.exclusive(async () => {
       const skill = this.skill(name);
-      if (to < 1 || to >= skill.version) throw new Refusal(`${name} can be reverted to a version from 1 to ${skill.version - 1}`);
-      const j = this.started(name, "human", reason || `Reverted to version ${to} by hand.`);
-      const version = await this.commit(name, await this.files(name, to), `Revert to version ${to}`, j);
+      if (!Number.isInteger(to) || to < 1 || to >= skill.version) throw new Refusal(`${name} can be reverted to a version from 1 to ${skill.version - 1}`);
+      const files = await this.files(name, to);
+      checkCap(files, this.maxChars);
+      const j = this.started(name, "human", reason || `Reverted to version ${to} by hand.`, actor);
+      const version = await this.commit(name, files, `Revert to version ${to}`, j);
       this.finish(j, "change", version, [], []);
       return j;
     });
@@ -285,8 +324,8 @@ export class Hub {
 
   // Judging
 
-  private started(skill: string, by: Ruler, reasoning: string): Judgment {
-    const j: Judgment = { id: newId(), skill, by, state: "running", startedAt: now(), finishedAt: null, outcome: null, reasoning, error: null, version: null };
+  private started(skill: string, by: Ruler, reasoning: string, actor: string | null = null): Judgment {
+    const j: Judgment = { id: newId(), skill, by, state: "running", startedAt: now(), finishedAt: null, outcome: null, reasoning, error: null, version: null, actor };
     this.store.putJudgment(j);
     return j;
   }
@@ -299,7 +338,7 @@ export class Hub {
       this.store.putSkill({ name, policy: existing?.policy ?? "judge", version, createdAt: existing?.createdAt ?? now() });
       this.store.addVersion({ skill: name, version, commit, note, by: j.by, judgment: j.id, at: now() });
     });
-    this.descriptions.set(name, frontmatter(files.find((f) => f.path === SKILL_FILE)?.content ?? "").description ?? "");
+    this.remember(name, files);
     return version;
   }
 
@@ -332,15 +371,17 @@ export class Hub {
     this.running.set(name, run);
   }
 
-  private async gather(name: string): Promise<Case> {
+  private async gather(name: string, failure: string | null): Promise<Case> {
     const skill = this.store.skill(name);
     const version = skill?.version ?? 0;
     return {
       skill: name,
       policy: skill?.policy ?? "judge",
       version,
+      maturity: this.maturity(name),
+      failure,
       files: await this.files(name, version),
-      others: this.list().filter((s) => s.name !== name).map((s) => ({ name: s.name, description: s.description })),
+      others: this.neighbours(name),
       proposals: this.store.proposals(name, "open").map((proposal) => ({
         proposal,
         votes: this.store.votes(proposal.id),
@@ -352,10 +393,19 @@ export class Hub {
     };
   }
 
+  /** The other skills the judge checks a skill against for overlap: all of them in a small library, else the closest by text. */
+  private neighbours(name: string): { name: string; description: string }[] {
+    const all = this.list().filter((s) => s.name !== name);
+    const near = all.length <= 30 ? all : this.search(`${name.replace(/-/g, " ")} ${this.descriptions.get(name) ?? ""}`, 31).filter((s) => s.name !== name).slice(0, 30);
+    return near.map((s) => ({ name: s.name, description: s.description }));
+  }
+
   private async judgeSkill(name: string, force: boolean): Promise<void> {
+    let failure: string | null = null;
     for (let attempt = 1; attempt <= JUDGMENT_ATTEMPTS; attempt++) {
-      const c = await this.gather(name);
-      const due = c.proposals.length > 0 || c.feedback.length >= this.feedbackBatch || (force && c.files.length > 0);
+      const c = await this.gather(name, failure);
+      const batch = this.feedbackBatch ?? c.maturity.feedbackBatch;
+      const due = c.proposals.length > 0 || c.feedback.length >= batch || (force && c.files.length > 0);
       if (!due) return;
       const j = this.started(name, "judge", "");
       this.log(`judging ${name} (judgment ${j.id}, attempt ${attempt})`);
@@ -370,6 +420,7 @@ export class Hub {
         j.error = e instanceof Error ? e.message : String(e);
         this.store.putJudgment(j);
         this.log(`${name}: judgment ${j.id} failed: ${j.error}`);
+        failure = j.error;
         if (e instanceof Outdated) {
           this.dirty.add(name);
           return;
@@ -389,6 +440,13 @@ export class Hub {
     if (d.outcome === "change") {
       const files = applyChange(c.files, checkChange({ write: d.change.write, remove: d.change.remove }));
       checkSkillFiles(c.skill, files);
+      checkCap(files, this.maxChars);
+      const size = textSize(files);
+      if (size > c.maturity.nextAtMost && size > c.maturity.chars) {
+        throw new Error(
+          `the new version holds ${size} characters, and a ${c.maturity.stage} skill of ${c.maturity.chars} may grow to ${c.maturity.nextAtMost} in one version: condense to make room`,
+        );
+      }
       version = await this.commit(c.skill, files, d.note.trim() || "Changed by the judge", j);
     }
     this.finish(j, d.outcome, version, rulings, c.feedback.map((f) => f.id));

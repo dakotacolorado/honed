@@ -3,7 +3,7 @@ import { mkdtemp, readFile, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, test } from "node:test";
-import { Refusal, type Change } from "./domain.ts";
+import { maturity, Refusal, type Change } from "./domain.ts";
 import { Hub } from "./hub.ts";
 import { render, type Case, type Decision, type Judge } from "./judge.ts";
 
@@ -230,10 +230,92 @@ describe("a person", () => {
 test("a server reopened on the same folder keeps everything, and fails judgments it left running", async () => {
   await hub.propose({ skill: "x", title: "t", why: "w", change: create("x") });
   await hub.idle();
-  hub.store.putJudgment({ id: "stuck", skill: "x", by: "judge", state: "running", startedAt: "2026-01-01T00:00:00.000Z", finishedAt: null, outcome: null, reasoning: "", error: null, version: null });
+  hub.store.putJudgment({ id: "stuck", skill: "x", by: "judge", state: "running", startedAt: "2026-01-01T00:00:00.000Z", finishedAt: null, outcome: null, reasoning: "", error: null, version: null, actor: null });
   hub.close();
   hub = await Hub.open(dir, judge, { feedbackBatch: 2 });
   assert.equal(hub.skill("x").version, 1);
   assert.equal(hub.list()[0]?.description, "When to use x.");
   assert.equal(hub.judgment("stuck").state, "failed");
+});
+
+describe("stickiness", () => {
+  test("a skill is young, then settling, then mature, by size or by versions, and each stage lets it grow less", () => {
+    const young = maturity(1, 1000, 20_000);
+    assert.deepEqual([young.stage, young.feedbackBatch, young.nextAtMost], ["young", 3, 20_000]);
+    const bySize = maturity(2, 8000, 20_000);
+    assert.deepEqual([bySize.stage, bySize.feedbackBatch, bySize.nextAtMost], ["settling", 5, 10_000]);
+    const byVersions = maturity(5, 1000, 20_000);
+    assert.deepEqual([byVersions.stage, byVersions.nextAtMost], ["settling", 1500]);
+    const mature = maturity(12, 15_000, 20_000);
+    assert.deepEqual([mature.stage, mature.feedbackBatch, mature.nextAtMost], ["mature", 8, 16_500]);
+    assert.equal(maturity(12, 19_900, 20_000).nextAtMost, 20_000);
+  });
+
+  test("a mature skill needs more feedback before the judge looks again", async () => {
+    hub.close();
+    hub = await Hub.open(dir, judge, { maxChars: 1000 });
+    await hub.propose({ skill: "x", title: "t", why: "w", change: create("x", "y".repeat(800)) });
+    await hub.idle();
+    assert.equal(hub.maturity("x").stage, "mature");
+    judge.cases = [];
+    judge.decide = () => ({ reasoning: "r", outcome: "no_change", note: "", change: { write: [], remove: [] }, proposals: [] });
+    for (let i = 0; i < 7; i++) await hub.giveFeedback({ skill: "x", verdict: "missing", reason: `r${i}` });
+    await hub.idle();
+    assert.equal(judge.cases.length, 0);
+    await hub.giveFeedback({ skill: "x", verdict: "missing", reason: "r7" });
+    await hub.idle();
+    assert.equal(judge.cases.length, 1);
+  });
+
+  test("the judge may not grow a settled skill past its limit, and is told why when it tries again", async () => {
+    hub.close();
+    hub = await Hub.open(dir, judge, { maxChars: 4000, feedbackBatch: 1 });
+    await hub.propose({ skill: "x", title: "t", why: "w", change: create("x", "y".repeat(1500)) });
+    await hub.idle();
+    const m = hub.maturity("x");
+    assert.equal(m.stage, "settling");
+    judge.cases = [];
+    judge.decide = (c) => ({
+      reasoning: "Add it all.",
+      outcome: "change",
+      note: "grow",
+      change: { write: [{ path: "SKILL.md", content: skillMd("x", "y".repeat(c.failure ? 1600 : 2600)), executable: false }], remove: [] },
+      proposals: [],
+    });
+    await hub.giveFeedback({ skill: "x", verdict: "missing", reason: "more" });
+    await hub.idle();
+    assert.equal(judge.cases.length, 2);
+    assert.match(judge.cases[1]!.failure!, /may grow to \d+ in one version/);
+    assert.equal(hub.skill("x").version, 2);
+  });
+
+  test("nobody may take a skill over its hard cap: not an agent, not a person", async () => {
+    hub.close();
+    hub = await Hub.open(dir, null, { maxChars: 1000 });
+    await assert.rejects(hub.propose({ skill: "x", title: "t", why: "w", change: create("x", "y".repeat(1000)) }), /over its cap of 1000/);
+    const p = await hub.propose({ skill: "x", title: "t", why: "w", change: create("x", "small") });
+    await hub.merge(p.id, "");
+    hub.close();
+    hub = await Hub.open(dir, null, { maxChars: 50 });
+    const q = await hub.proposal(p.id);
+    assert.equal(q.state, "merged");
+    await assert.rejects(hub.propose({ skill: "x", title: "t", why: "w", change: create("x", "smaller") }), /over its cap of 50/);
+  });
+});
+
+describe("search", () => {
+  test("finds a skill by any word of its text, stemmed, best match first, and follows each new version", async () => {
+    hub.close();
+    hub = await Hub.open(dir, null);
+    for (const [name, body] of [["git-commits", "Write subjects in the imperative."], ["release-notes", "Group merged changes by user-facing impact."], ["reviews", "Check that commits are split sensibly."]] as const) {
+      await hub.merge((await hub.propose({ skill: name, title: "t", why: "w", change: create(name, body) })).id, "");
+    }
+    const hits = hub.search("commit");
+    assert.deepEqual(hits.map((h) => h.name), ["git-commits", "reviews"]);
+    assert.match(hits[1]!.snippet, /«commits»/);
+    assert.deepEqual(hub.search("merging").map((h) => h.name), ["release-notes"]);
+    assert.deepEqual(hub.search("  ").map((h) => h.name), []);
+    await hub.merge((await hub.propose({ skill: "reviews", title: "t", why: "w", change: create("reviews", "Read the tests first.") })).id, "");
+    assert.deepEqual(hub.search("commit").map((h) => h.name), ["git-commits"]);
+  });
 });

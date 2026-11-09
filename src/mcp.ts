@@ -1,15 +1,17 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { Refusal, SKILL_FILE, VERDICTS, VOTES } from "./domain.ts";
+import { authorOf } from "./auth.ts";
+import { Refusal, SKILL_FILE, VERDICTS, VOTES, type Caller } from "./domain.ts";
 import type { Hub } from "./hub.ts";
 
-export const INSTRUCTIONS = `honed is a library of skills shared by every agent that uses this server, and kept by them.
+export const INSTRUCTIONS = `honed is a library of skills shared by every agent that uses this server, and honed by them.
 
-- Before a task, call list_skills (with a query if you like) and read_skill for any whose description fits. Follow what you read. A skill's scripts are in the folder read_skill names; run them from there and never edit them in place.
+- Before a task, call search_skills with what the task is about (or list_skills to see them all), and read_skill for any whose description fits. Follow what you read. To run a skill's script, read it with read_file and run your copy; never edit the library's own files.
 - After using a skill, call give_feedback once: helped, hurt (it led you wrong), or missing (it lacked something you needed), with what happened. Be concrete; this is how skills improve.
 - To change a skill, or to add one, call write_skill. It does not write: it opens a proposal, which a judge rules on with the votes, comments and feedback it has. Say in why what happened that the change would have helped with.
 - Open proposals are listed in read_skill. Vote or comment on one when your own work bears on it, with your reason.
-- Name yourself in author (your role or task, e.g. "reviewer on PR 12"), so the history says who said what.`;
+- Name your role or task in author (e.g. "reviewer on PR 12"), so the history says who said what.
+- Skills have a hard cap on their text and get stickier as they grow: in a mature skill, a change has to make the whole better, not just add to it.`;
 
 const author = z.string().optional().describe("Who you are, e.g. your role or task. Kept with what you write.");
 
@@ -24,25 +26,41 @@ async function answer(fn: () => Promise<unknown> | unknown) {
   }
 }
 
-export function mcpServer(hub: Hub, version: string): McpServer {
+/** The MCP server for one request, speaking for `caller`. On a local server with no tokens, the caller is whoever is at this machine. */
+export function mcpServer(hub: Hub, version: string, caller: Caller, local: boolean): McpServer {
   const server = new McpServer({ name: "honed", version }, { instructions: INSTRUCTIONS });
+  const by = (given: string | undefined) => authorOf(caller, local, given);
 
   server.registerTool(
     "list_skills",
     {
       title: "List skills",
-      description: "Every skill in the library, or those whose name or description matches query: name, description, version and open proposals.",
-      inputSchema: { query: z.string().optional() },
+      description: "Every skill in the library: name, description, version, stage and open proposals.",
       annotations: { readOnlyHint: true },
     },
-    ({ query }) => answer(() => hub.list(query).map(({ name, description, version, openProposals }) => ({ name, description, version, openProposals }))),
+    () =>
+      answer(() =>
+        hub.list().map(({ name, description, version, maturity, openProposals }) => ({ name, description, version, stage: maturity.stage, openProposals })),
+      ),
+  );
+
+  server.registerTool(
+    "search_skills",
+    {
+      title: "Search skills",
+      description: "Skills whose name, description or text match any word of query, best first, each with where it matched.",
+      inputSchema: { query: z.string(), limit: z.number().int().positive().max(50).optional() },
+      annotations: { readOnlyHint: true },
+    },
+    ({ query, limit }) =>
+      answer(() => hub.search(query, limit ?? 10).map(({ name, description, version, snippet }) => ({ name, description, version, matched: snippet }))),
   );
 
   server.registerTool(
     "read_skill",
     {
       title: "Read a skill",
-      description: `A skill's ${SKILL_FILE}, the paths of its other files, the folder they are checked out in, and its open proposals. Give version for an earlier one.`,
+      description: `A skill's ${SKILL_FILE}, the paths of its other files, its stage and its open proposals. Give version for an earlier one.`,
       inputSchema: { name: z.string(), version: z.number().int().positive().optional() },
       annotations: { readOnlyHint: true },
     },
@@ -55,7 +73,8 @@ export function mcpServer(hub: Hub, version: string): McpServer {
           name,
           version: v,
           latestVersion: skill.version,
-          ...(v === skill.version ? { folder: hub.library.path(name) } : {}),
+          ...(local && v === skill.version ? { folder: hub.library.path(name) } : {}),
+          ...(v === skill.version ? { stage: hub.maturity(name).stage } : {}),
           [SKILL_FILE]: files.find((f) => f.path === SKILL_FILE)?.content ?? "",
           files: files.filter((f) => f.path !== SKILL_FILE).map((f) => ({ path: f.path, executable: f.executable, bytes: Buffer.byteLength(f.content) })),
           openProposals: hub.store.proposals(name, "open").map((p) => ({ id: p.id, title: p.title, by: p.author, votes: hub.store.votes(p.id).length })),
@@ -98,7 +117,7 @@ export function mcpServer(hub: Hub, version: string): McpServer {
     },
     ({ name, title, why, write, remove, author }) =>
       answer(async () => {
-        const p = await hub.propose({ skill: name, title, why, change: { write, remove }, author });
+        const p = await hub.propose({ skill: name, title, why, change: { write, remove }, author: by(author) });
         return { proposal: p.id, state: p.state, note: "The judge rules on it shortly. Call get_proposal to see the ruling." };
       }),
   );
@@ -137,7 +156,7 @@ export function mcpServer(hub: Hub, version: string): McpServer {
       description: "Votes up or down on an open proposal, with the reason from your own work. A second vote replaces your first.",
       inputSchema: { proposal: z.string(), vote: z.enum(VOTES), reason: z.string(), author },
     },
-    ({ proposal, vote, reason, author }) => answer(() => (hub.vote({ proposal, vote, reason, author }), "Your vote is recorded.")),
+    ({ proposal, vote, reason, author }) => answer(() => (hub.vote({ proposal, vote, reason, author: by(author) }), "Your vote is recorded.")),
   );
 
   server.registerTool(
@@ -147,7 +166,7 @@ export function mcpServer(hub: Hub, version: string): McpServer {
       description: "Comments on an open proposal: a question, a concern, or what it would need to be merged.",
       inputSchema: { proposal: z.string(), body: z.string(), author },
     },
-    ({ proposal, body, author }) => answer(() => (hub.comment({ proposal, body, author }), "Your comment is recorded.")),
+    ({ proposal, body, author }) => answer(() => (hub.comment({ proposal, body, author: by(author) }), "Your comment is recorded.")),
   );
 
   server.registerTool(
@@ -164,7 +183,7 @@ export function mcpServer(hub: Hub, version: string): McpServer {
       },
     },
     ({ name, verdict, reason, version, author }) =>
-      answer(async () => (await hub.giveFeedback({ skill: name, verdict, reason, version, author }), "Thanks: your feedback is recorded.")),
+      answer(async () => (await hub.giveFeedback({ skill: name, verdict, reason, version, author: by(author) }), "Thanks: your feedback is recorded.")),
   );
 
   return server;

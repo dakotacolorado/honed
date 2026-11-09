@@ -2,8 +2,10 @@ import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/
 import { Hono, type Context } from "hono";
 import { html, raw } from "hono/html";
 import type { HtmlEscapedString } from "hono/utils/html";
-import { POLICIES, Refusal, SKILL_FILE, type Judgment, type Policy, type Proposal } from "./domain.ts";
-import type { Hub } from "./hub.ts";
+import { getCookie, setCookie, deleteCookie } from "hono/cookie";
+import { callerOf } from "./auth.ts";
+import { LOCAL_CALLER, POLICIES, Refusal, SKILL_FILE, type Caller, type Judgment, type Maturity, type Policy, type Proposal } from "./domain.ts";
+import type { Hub, SkillSummary } from "./hub.ts";
 import { mcpServer } from "./mcp.ts";
 
 type Html = HtmlEscapedString | Promise<HtmlEscapedString>;
@@ -12,6 +14,20 @@ type Html = HtmlEscapedString | Promise<HtmlEscapedString>;
 const LOCAL_HOSTS = new Set(["127.0.0.1", "localhost", "[::1]"]);
 /** Sent by the page with every write. A cross-site form cannot set it, and a cross-site fetch that does is refused by CORS. */
 export const WRITE_HEADER = "x-honed";
+const COOKIE = "honed_token";
+
+export interface AppOptions {
+  /** Bound beyond this machine: every request then needs a token, even before any exists. */
+  shared?: boolean;
+}
+
+/** Who is asking, and whether the server is in local mode, where it has no tokens and answers only its own machine. */
+interface Viewer {
+  caller: Caller;
+  local: boolean;
+}
+
+type Env = { Variables: { viewer: Viewer } };
 
 const CSS = `
 :root { --bg:#fbfaf8; --fg:#1d1d1f; --muted:#6b6b70; --line:#e3e1dc; --card:#fff; --accent:#3b5bdb; --add:#e6f4ea; --add-fg:#1e6b34; --del:#fdecea; --del-fg:#a1281d; --warn:#8a5a00; }
@@ -38,6 +54,11 @@ input[type=text] { flex:1; min-width:180px; }
 button { font:inherit; padding:5px 12px; border-radius:6px; border:1px solid var(--line); background:var(--card); color:var(--fg); cursor:pointer; }
 button.primary { background:var(--accent); border-color:var(--accent); color:var(--bg); }
 .refusal { color:var(--del-fg); font-size:13px; width:100%; }
+header.top .who { margin-left:auto; }
+.bar { display:inline-block; width:80px; height:6px; border-radius:3px; background:var(--line); vertical-align:middle; overflow:hidden; }
+.bar i { display:block; height:100%; background:var(--accent); }
+form.search { display:flex; gap:8px; margin:16px 0; }
+.snippet { font-size:13px; color:var(--muted); }
 code { font:13px ui-monospace, Menlo, monospace; }
 .reasoning { white-space:pre-wrap; }
 `;
@@ -56,7 +77,8 @@ document.addEventListener("submit", async (ev) => {
 });
 `;
 
-function page(title: string, body: Html, opts: { refresh?: boolean } = {}): Html {
+function page(title: string, body: Html, opts: { refresh?: boolean; viewer?: Viewer } = {}): Html {
+  const who = opts.viewer && !opts.viewer.local ? html`<span class="who small muted">${opts.viewer.caller.name}${opts.viewer.caller.admin ? " (admin)" : ""} · <a href="/logout">sign out</a></span>` : "";
   return html`<!doctype html>
 <html lang="en">
   <head>
@@ -68,7 +90,7 @@ function page(title: string, body: Html, opts: { refresh?: boolean } = {}): Html
   </head>
   <body>
     <main>
-      <header class="top"><a class="home" href="/">honed</a><span class="muted small">skills agents learn for themselves</span></header>
+      <header class="top"><a class="home" href="/">honed</a><span class="muted small">share and hone skills across your organization</span>${who}</header>
       ${body}
     </main>
     <script>${raw(SCRIPT)}</script>
@@ -98,9 +120,41 @@ function action(path: string, label: string, opts: { reason?: string; primary?: 
   </form>`;
 }
 
+const rulerName = (j: Judgment) => (j.by === "human" ? (j.actor && j.actor !== "you" ? j.actor : "You") : "Judge");
+
 function judgmentLine(j: Judgment): Html {
   const what = j.state === "done" ? pill(j.outcome === "change" ? `made v${j.version}` : "no change", j.outcome ?? "") : pill(j.state);
-  return html`<a href="/judgments/${j.id}">${j.by === "human" ? "You" : "Judge"} on ${j.skill}</a> ${what} ${when(j.startedAt)}`;
+  return html`<a href="/judgments/${j.id}">${rulerName(j)} on ${j.skill}</a> ${what} ${when(j.startedAt)}`;
+}
+
+const k = (n: number) => (n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n));
+
+function stage(m: Maturity): Html {
+  return html`<span title="${m.chars} of ${m.maxChars} characters">${m.stage} <span class="bar"><i style="width:${Math.min(100, Math.round((m.chars / m.maxChars) * 100))}%"></i></span> <span class="muted small">${k(m.chars)}/${k(m.maxChars)}</span></span>`;
+}
+
+function skillRow(s: SkillSummary, snippet?: string): Html {
+  return html`<tr>
+    <td><a href="/skills/${s.name}"><b>${s.name}</b></a>${s.policy === "human" ? html` ${pill("ruled by hand")}` : ""}<div class="muted small">${s.description}</div>${snippet ? html`<div class="snippet">${snippet}</div>` : ""}</td>
+    <td>v${s.version}</td>
+    <td class="small">${stage(s.maturity)}</td>
+    <td class="small">${s.verdicts.helped} helped · ${s.verdicts.hurt} hurt · ${s.verdicts.missing} missing</td>
+    <td>${s.openProposals ? pill(`${s.openProposals} open`, "open") : ""}</td>
+  </tr>`;
+}
+
+const SKILL_HEAD = html`<tr><th>Skill</th><th>Version</th><th>Stage</th><th>Feedback on this version</th><th></th></tr>`;
+
+function connect(origin: string, viewer: Viewer): Html {
+  const header = viewer.local ? "" : ' --header "Authorization: Bearer $HONED_TOKEN"';
+  return html`<details class="card small"><summary>Connect an agent</summary>
+    <p>Claude Code, with the plugin (it also asks agents for feedback on the skills they used):</p>
+    <pre>claude plugin marketplace add dakotacolorado/honed
+claude plugin install honed@honed --config url=${origin}</pre>
+    ${viewer.local ? "" : html`<p>Then, in a session, <code>/plugin configure honed@honed</code> to give it your token, which Claude Code keeps in your system's secure store.</p>`}
+    <p>Any MCP client, at <code>${origin}/mcp</code>:</p>
+    <pre>claude mcp add --transport http --scope user honed ${origin}/mcp${header}</pre>
+  </details>`;
 }
 
 function proposalRow(p: Proposal, hub: Hub): Html {
@@ -114,40 +168,35 @@ function proposalRow(p: Proposal, hub: Hub): Html {
   </tr>`;
 }
 
-function home(hub: Hub, origin: string): Html {
+function home(hub: Hub, origin: string, viewer: Viewer, q: string): Html {
   const skills = hub.list();
+  const results = q.trim() ? hub.search(q, 50) : null;
   const known = new Set(skills.map((s) => s.name));
   const newSkills = hub.store.openProposals().filter((p) => !known.has(p.skill));
   const judgments = hub.store.recentJudgments(15);
   return page(
     "Skills",
     html`<h1>Skills</h1>
-      <p class="muted">Agents read these, give feedback on them and propose changes; the judge decides what becomes the next version.</p>
-      <div class="card small">Connect Claude Code: <code>claude mcp add --transport http honed ${origin}/mcp</code></div>
-      ${skills.length === 0
-        ? html`<p class="muted">No skills yet. An agent adds one by proposing it with <code>write_skill</code>.</p>`
-        : html`<table>
-            <tr><th>Skill</th><th>Version</th><th>Feedback on it</th><th>Open</th><th>Updated</th></tr>
-            ${skills.map(
-              (s) => html`<tr>
-                <td><a href="/skills/${s.name}"><b>${s.name}</b></a>${s.policy === "human" ? html` ${pill("ruled by hand")}` : ""}<div class="muted small">${s.description}</div></td>
-                <td>v${s.version}</td>
-                <td class="small">${s.verdicts.helped} helped · ${s.verdicts.hurt} hurt · ${s.verdicts.missing} missing</td>
-                <td>${s.openProposals ? pill(`${s.openProposals} proposals`, "open") : ""}</td>
-                <td>${when(s.updatedAt)}</td>
-              </tr>`,
-            )}
-          </table>`}
+      <p class="muted">Agents read these, give feedback on them and propose changes; the judge decides what becomes the next version, and gets stickier as a skill grows.</p>
+      ${connect(origin, viewer)}
+      <form class="search" method="get" action="/"><input type="text" name="q" value="${q}" placeholder="Search every skill's text" /><button type="submit">Search</button></form>
+      ${results
+        ? results.length
+          ? html`<table>${SKILL_HEAD}${results.map((r) => skillRow(r, r.snippet))}</table>`
+          : html`<p class="muted">No skill mentions that.</p>`
+        : skills.length === 0
+          ? html`<p class="muted">No skills yet. An agent adds one by proposing it with <code>write_skill</code>.</p>`
+          : html`<table>${SKILL_HEAD}${skills.map((s) => skillRow(s))}</table>`}
       ${newSkills.length
         ? html`<h2>Proposed skills</h2><table>${newSkills.map((p) => html`<tr><td><b>${p.skill}</b></td></tr>${proposalRow(p, hub)}`)}</table>`
         : ""}
       <h2>Recent judgments</h2>
       ${judgments.length ? html`${judgments.map((j) => html`<div>${judgmentLine(j)}</div>`)}` : html`<p class="muted small">None yet.</p>`}`,
-    { refresh: judgments.some((j) => j.state === "running") },
+    { refresh: !results && judgments.some((j) => j.state === "running"), viewer },
   );
 }
 
-async function skillPage(hub: Hub, name: string): Promise<HtmlEscapedString> {
+async function skillPage(hub: Hub, name: string, viewer: Viewer): Promise<HtmlEscapedString> {
   const skill = hub.skill(name);
   const files = await hub.files(name, skill.version);
   const versions = hub.store.versions(name);
@@ -156,6 +205,8 @@ async function skillPage(hub: Hub, name: string): Promise<HtmlEscapedString> {
   const judging = hub.isJudging(name);
   const diffs = await Promise.all(versions.map((v) => hub.library.diff(name, v.commit)));
   const summary = hub.list().find((s) => s.name === name)!;
+  const m = summary.maturity;
+  const admin = viewer.caller.admin;
   const policySelect = html`<select name="policy">${POLICIES.map(
     (p) => html`<option value="${p}" ${p === skill.policy ? "selected" : ""}>${p === "judge" ? "The judge rules" : "I rule by hand"}</option>`,
   )}</select>`;
@@ -163,12 +214,18 @@ async function skillPage(hub: Hub, name: string): Promise<HtmlEscapedString> {
     name,
     html`<h1>${name} <span class="muted">v${skill.version}</span></h1>
       <p>${summary.description}</p>
-      <p class="small muted">Checked out at <code>${hub.library.path(name)}</code> · on this version: ${summary.verdicts.helped} helped, ${summary.verdicts.hurt} hurt, ${summary.verdicts.missing} missing</p>
-      ${judging ? html`<p>${pill("the judge is ruling", "running")}</p>` : ""}
-      <div class="card">
-        ${action(`/api/skills/${name}/policy`, "Save", { extra: policySelect })}
-        ${skill.policy === "judge" && !judging ? action(`/api/skills/${name}/judge`, "Ask the judge to rule now") : ""}
+      <p class="small muted">On this version: ${summary.verdicts.helped} helped, ${summary.verdicts.hurt} hurt, ${summary.verdicts.missing} missing${viewer.local ? html` · checked out at <code>${hub.library.path(name)}</code>` : ""}</p>
+      <div class="card small">
+        <b>${m.stage}</b> ${stage(m)}
+        <div class="muted">The judge looks again after ${m.feedbackBatch} new pieces of feedback, or any proposal. ${m.nextAtMost > m.chars ? `Its next version may hold up to ${m.nextAtMost} characters.` : "It is at its cap: anything new has to replace something."}</div>
       </div>
+      ${judging ? html`<p>${pill("the judge is ruling", "running")}</p>` : ""}
+      ${admin
+        ? html`<div class="card">
+            ${action(`/api/skills/${name}/policy`, "Save", { extra: policySelect })}
+            ${skill.policy === "judge" && !judging ? action(`/api/skills/${name}/judge`, "Ask the judge to rule now") : ""}
+          </div>`
+        : ""}
 
       <h2>Proposals</h2>
       ${proposals.length ? html`<table>${proposals.slice(0, 30).map((p) => proposalRow(p, hub))}</table>` : html`<p class="muted small">None.</p>`}
@@ -181,9 +238,9 @@ async function skillPage(hub: Hub, name: string): Promise<HtmlEscapedString> {
       <h2>History</h2>
       ${versions.map(
         (v, i) => html`<div class="card">
-          <b>v${v.version}</b> ${v.note} <span class="small">· <a href="/judgments/${v.judgment}">${v.by === "human" ? "by you" : "by the judge"}</a></span> ${when(v.at)}
+          <b>v${v.version}</b> ${v.note} <span class="small">· <a href="/judgments/${v.judgment}">by ${v.by === "human" ? (hub.store.judgment(v.judgment)?.actor ?? "a person") : "the judge"}</a></span> ${when(v.at)}
           <details><summary class="small">What changed</summary>${diff(diffs[i] ?? "")}</details>
-          ${v.version < skill.version ? action(`/api/skills/${name}/revert`, `Revert to v${v.version}`, { reason: "Why (kept in the history)", extra: html`<input type="hidden" name="version" value="${v.version}" />` }) : ""}
+          ${admin && v.version < skill.version ? action(`/api/skills/${name}/revert`, `Revert to v${v.version}`, { reason: "Why (kept in the history)", extra: html`<input type="hidden" name="version" value="${v.version}" />` }) : ""}
         </div>`,
       )}
 
@@ -203,11 +260,11 @@ async function skillPage(hub: Hub, name: string): Promise<HtmlEscapedString> {
 
       <h2>Judgments</h2>
       ${hub.store.judgments(name, 20).map((j) => html`<div>${judgmentLine(j)}</div>`)}`,
-    { refresh: judging },
+    { refresh: judging, viewer },
   );
 }
 
-async function proposalPage(hub: Hub, id: string): Promise<HtmlEscapedString> {
+async function proposalPage(hub: Hub, id: string, viewer: Viewer): Promise<HtmlEscapedString> {
   const p = hub.proposal(id);
   const votes = hub.store.votes(id);
   const comments = hub.store.comments(id);
@@ -226,7 +283,7 @@ async function proposalPage(hub: Hub, id: string): Promise<HtmlEscapedString> {
         : html`${p.change.remove.map((r) => html`<div class="small">Remove <code>${r}</code></div>`)}${p.change.write.map(
             (w) => html`<details><summary><code>${w.path}</code></summary><pre>${w.content}</pre></details>`,
           )}`}
-      ${p.state === "open"
+      ${p.state === "open" && viewer.caller.admin
         ? html`<div class="card">
             <b>Override the judge</b>
             ${action(`/api/proposals/${id}/merge`, "Merge it", { reason: "Why (kept in the history)", primary: true })}
@@ -241,11 +298,11 @@ async function proposalPage(hub: Hub, id: string): Promise<HtmlEscapedString> {
       ${rulings.length
         ? html`${rulings.map((r) => html`<div class="card">${pill(r.ruling)} ${r.reason} <a class="small" href="/judgments/${r.judgment}">judgment ${short(r.judgment)}</a></div>`)}`
         : html`<p class="muted small">${hub.isJudging(p.skill) ? "The judge is ruling." : "None yet."}</p>`}`,
-    { refresh: p.state === "open" && hub.isJudging(p.skill) },
+    { refresh: p.state === "open" && hub.isJudging(p.skill), viewer },
   );
 }
 
-async function judgmentPage(hub: Hub, id: string): Promise<HtmlEscapedString> {
+async function judgmentPage(hub: Hub, id: string, viewer: Viewer): Promise<HtmlEscapedString> {
   const j = hub.judgment(id);
   const rulings = hub.store.rulingsOf(id);
   const feedback = hub.store.feedbackOf(id);
@@ -253,7 +310,7 @@ async function judgmentPage(hub: Hub, id: string): Promise<HtmlEscapedString> {
   return page(
     `Judgment ${short(id)}`,
     html`<p class="small"><a href="/skills/${j.skill}">${j.skill}</a></p>
-      <h1>${j.by === "human" ? "Your ruling" : "The judge's ruling"}</h1>
+      <h1>${j.by === "human" ? `${rulerName(j) === "You" ? "Your" : `${rulerName(j)}'s`} ruling` : "The judge's ruling"}</h1>
       <p>${pill(j.state)} ${j.outcome ? pill(j.outcome === "change" ? `made v${j.version}` : "no change", j.outcome) : ""} ${when(j.startedAt)}</p>
       ${j.reasoning ? html`<h2>Reasoning</h2><p class="reasoning">${j.reasoning}</p>` : ""}
       ${j.error ? html`<h2>Why it failed</h2><pre>${j.error}</pre>` : ""}
@@ -264,14 +321,25 @@ async function judgmentPage(hub: Hub, id: string): Promise<HtmlEscapedString> {
         ? html`<h2>Feedback it considered</h2>${feedback.map((f) => html`<div class="card">${pill(f.verdict)} ${f.reason}<div class="muted small">${f.author} · on v${f.version}</div></div>`)}`
         : ""}
       ${version ? html`<h2>What v${version.version} changed</h2>${diff(await hub.library.diff(j.skill, version.commit))}` : ""}`,
-    { refresh: j.state === "running" },
+    { refresh: j.state === "running", viewer },
+  );
+}
+
+function loginPage(error?: string): Html {
+  return page(
+    "Sign in",
+    html`<h1>Sign in</h1>
+      <p class="muted">This honed is shared: paste the token you were given. <code>honed token create &lt;name&gt;</code> on the server makes one.</p>
+      <form method="post" action="/login" class="search"><input type="password" name="token" placeholder="honed_…" autocomplete="current-password" /><button type="submit" class="primary">Sign in</button></form>
+      ${error ? html`<p class="refusal">${error}</p>` : ""}`,
   );
 }
 
 const field = (body: Record<string, unknown>, key: string) => (typeof body[key] === "string" ? (body[key] as string) : "");
 
-export function app(hub: Hub, version: string): Hono {
-  const web = new Hono();
+export function app(hub: Hub, version: string, opts: AppOptions = {}): Hono<Env> {
+  const web = new Hono<Env>();
+  const shared = opts.shared ?? false;
 
   web.onError((e, c) => {
     if (e instanceof Refusal) {
@@ -282,30 +350,58 @@ export function app(hub: Hub, version: string): Hono {
     return c.json({ error: "something went wrong in the server; its log says what" }, 500);
   });
 
+  web.get("/login", (c) => c.html(loginPage()));
+  web.post("/login", async (c) => {
+    const form = await c.req.parseBody();
+    const token = typeof form.token === "string" ? form.token.trim() : "";
+    if (!callerOf(hub.store, token)) return c.html(loginPage("That token is not one this server issued, or it was revoked."), 401);
+    setCookie(c, COOKIE, token, { httpOnly: true, sameSite: "Strict", path: "/", secure: new URL(c.req.url).protocol === "https:" || c.req.header("x-forwarded-proto") === "https", maxAge: 60 * 60 * 24 * 30 });
+    return c.redirect("/");
+  });
+  web.get("/logout", (c) => (deleteCookie(c, COOKIE, { path: "/" }), c.redirect("/login")));
+
+  // No tokens and not shared: local mode, open to this machine alone. Otherwise every request names its token.
   web.use("*", async (c, next) => {
-    const host = (c.req.header("host") ?? "").replace(/:\d+$/, "");
-    if (!LOCAL_HOSTS.has(host)) return c.json({ error: `honed answers only to localhost, not ${host || "no host"}` }, 403);
-    await next();
+    const local = !shared && hub.store.tokens().length === 0;
+    if (local) {
+      const host = (c.req.header("host") ?? "").replace(/:\d+$/, "");
+      if (!LOCAL_HOSTS.has(host)) return c.json({ error: `honed answers only to localhost, not ${host || "no host"}, until it has tokens` }, 403);
+      c.set("viewer", { caller: LOCAL_CALLER, local });
+      return next();
+    }
+    const bearer = c.req.header("authorization")?.match(/^Bearer\s+(.+)$/i)?.[1];
+    const caller = callerOf(hub.store, bearer ?? getCookie(c, COOKIE));
+    if (!caller) {
+      if (c.req.method === "GET" && !c.req.path.startsWith("/api") && c.req.path !== "/mcp") return c.redirect("/login");
+      c.header("WWW-Authenticate", 'Bearer realm="honed"');
+      return c.json({ error: bearer ? "that token is not one this server issued, or it was revoked" : "this honed is shared: send Authorization: Bearer <token>" }, 401);
+    }
+    c.set("viewer", { caller, local });
+    return next();
   });
 
   web.all("/mcp", async (c) => {
-    const server = mcpServer(hub, version);
+    const { caller, local } = c.get("viewer");
+    const server = mcpServer(hub, version, caller, local);
     const transport = new WebStandardStreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true });
     await server.connect(transport);
     return transport.handleRequest(c.req.raw);
   });
 
-  const writes = new Hono();
+  const writes = new Hono<Env>();
   writes.use("*", async (c, next) => {
-    if (c.req.method !== "GET" && c.req.method !== "HEAD" && c.req.header(WRITE_HEADER) !== "1") return c.json({ error: `a write must carry the ${WRITE_HEADER} header` }, 403);
-    await next();
+    if (c.req.method === "GET" || c.req.method === "HEAD") return next();
+    if (c.req.header(WRITE_HEADER) !== "1") return c.json({ error: `a write must carry the ${WRITE_HEADER} header` }, 403);
+    if (!c.get("viewer").caller.admin) return c.json({ error: "overriding the judge takes an admin token" }, 403);
+    return next();
   });
   const body = async (c: Context) => ((await c.req.json().catch(() => ({}))) ?? {}) as Record<string, unknown>;
-  writes.post("/proposals/:id/merge", async (c) => c.json(await hub.merge(c.req.param("id"), field(await body(c), "reason"))));
-  writes.post("/proposals/:id/reject", async (c) => c.json(await hub.reject(c.req.param("id"), field(await body(c), "reason"))));
+  const actor = (c: Context<Env>) => c.get("viewer").caller.name;
+  writes.post("/proposals/:id/merge", async (c) => c.json(await hub.merge(c.req.param("id"), field(await body(c), "reason"), actor(c))));
+  writes.post("/proposals/:id/reject", async (c) => c.json(await hub.reject(c.req.param("id"), field(await body(c), "reason"), actor(c))));
   writes.post("/skills/:name/revert", async (c) => {
     const b = await body(c);
-    return c.json(await hub.revert(c.req.param("name"), Number(field(b, "version") || b.version), field(b, "reason")));
+    return c.json(await hub.revert(c.req.param("name"), Number(field(b, "version") || b.version), field(b, "reason"), actor(c)));
   });
   writes.post("/skills/:name/policy", async (c) => {
     const policy = field(await body(c), "policy");
@@ -315,10 +411,13 @@ export function app(hub: Hub, version: string): Hono {
   writes.post("/skills/:name/judge", (c) => (hub.judgeNow(c.req.param("name")), c.json({ judging: true })));
   web.route("/api", writes);
 
-  web.get("/api/skills", (c) => c.json(hub.list(c.req.query("q"))));
+  web.get("/api/skills", (c) => {
+    const q = c.req.query("q");
+    return c.json(q ? hub.search(q, Number(c.req.query("limit") ?? 20)) : hub.list());
+  });
   web.get("/api/skills/:name", async (c) => {
     const name = c.req.param("name");
-    return c.json({ ...hub.skill(name), files: await hub.current(name), versions: hub.store.versions(name), proposals: hub.store.proposals(name) });
+    return c.json({ ...hub.skill(name), maturity: hub.maturity(name), files: await hub.current(name), versions: hub.store.versions(name), proposals: hub.store.proposals(name) });
   });
   web.get("/api/proposals/:id", (c) => {
     const id = c.req.param("id");
@@ -326,10 +425,10 @@ export function app(hub: Hub, version: string): Hono {
   });
   web.get("/api/judgments/:id", (c) => c.json(hub.judgment(c.req.param("id"))));
 
-  web.get("/", (c) => c.html(home(hub, new URL(c.req.url).origin)));
-  web.get("/skills/:name", async (c) => c.html(await skillPage(hub, c.req.param("name"))));
-  web.get("/proposals/:id", async (c) => c.html(await proposalPage(hub, c.req.param("id"))));
-  web.get("/judgments/:id", async (c) => c.html(await judgmentPage(hub, c.req.param("id"))));
+  web.get("/", (c) => c.html(home(hub, new URL(c.req.url).origin, c.get("viewer"), c.req.query("q") ?? "")));
+  web.get("/skills/:name", async (c) => c.html(await skillPage(hub, c.req.param("name"), c.get("viewer"))));
+  web.get("/proposals/:id", async (c) => c.html(await proposalPage(hub, c.req.param("id"), c.get("viewer"))));
+  web.get("/judgments/:id", async (c) => c.html(await judgmentPage(hub, c.req.param("id"), c.get("viewer"))));
 
   return web;
 }

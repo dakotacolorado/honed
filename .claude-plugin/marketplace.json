@@ -1,0 +1,12 @@
+{
+  "name": "honed",
+  "owner": { "name": "Dakota Parker" },
+  "description": "honed: share and hone skills across your organization.",
+  "plugins": [
+    {
+      "name": "honed",
+      "source": "./plugin",
+      "description": "Connects Claude Code to a honed server, points each session at the skills that apply, and asks for feedback on the skills it used."
+    }
+  ]
+}

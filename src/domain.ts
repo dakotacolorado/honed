@@ -18,8 +18,8 @@ export type Ruler = "judge" | "human";
 export const SKILL_FILE = "SKILL.md";
 export const MAX_FILE_BYTES = 256 * 1024;
 export const MAX_FILES = 100;
-/** Unconsidered feedback on a skill that starts a judgment when no proposal is open. */
-export const FEEDBACK_BATCH = 3;
+/** The most text a skill may hold, all its files together, unless the server is started with another. */
+export const DEFAULT_MAX_CHARS = 20_000;
 /** Failed judgments in a row on a skill before it waits for something new. */
 export const JUDGMENT_ATTEMPTS = 3;
 /** Past rulings on a skill the judge is shown, to stay consistent with itself. */
@@ -114,7 +114,17 @@ export interface Judgment {
   error: string | null;
   /** The version it made, if it made one. */
   version: number | null;
+  /** For a person's ruling, whose token made it. */
+  actor: string | null;
 }
+
+/** Who is calling: a named token, or anyone at all on a server that has no tokens and answers only its own machine. */
+export interface Caller {
+  name: string;
+  admin: boolean;
+}
+
+export const LOCAL_CALLER: Caller = { name: "you", admin: true };
 
 export interface ProposalRuling {
   judgment: string;
@@ -196,6 +206,54 @@ export function frontmatter(skillMd: string): Frontmatter {
     if (m?.[1] && m[2] !== undefined) out[m[1] as keyof Frontmatter] = m[2].trim().replace(/^["']|["']$/g, "");
   }
   return out;
+}
+
+export const textSize = (files: { content: string }[]) => files.reduce((n, f) => n + f.content.length, 0);
+
+/** Refuses files over the hard cap, from anyone: agents, the judge, a person. */
+export function checkCap(files: SkillFile[], maxChars: number): void {
+  const size = textSize(files);
+  if (size > maxChars) {
+    throw new Refusal(`the skill would hold ${size} characters, over its cap of ${maxChars}: condense it, or cut detail, to make room`);
+  }
+}
+
+export const STAGES = ["young", "settling", "mature"] as const;
+export type Stage = (typeof STAGES)[number];
+
+/** How sticky a skill has become, and what that allows. */
+export interface Maturity {
+  stage: Stage;
+  /** 0 to 1: the larger of its share of the cap and its versions out of ten. */
+  stickiness: number;
+  versions: number;
+  chars: number;
+  maxChars: number;
+  /** Unconsidered feedback that starts a judgment when no proposal is open. */
+  feedbackBatch: number;
+  /** The most text the judge's next version may hold. A person is held to the cap alone. */
+  nextAtMost: number;
+}
+
+const FEEDBACK_BATCH: Record<Stage, number> = { young: 3, settling: 5, mature: 8 };
+
+/**
+ * A young skill takes what it is given; a mature one has to be argued with. As a skill grows toward its cap
+ * or through its versions, more feedback is needed before the judge looks again, and each version may grow it less.
+ */
+export function maturity(versions: number, chars: number, maxChars: number): Maturity {
+  const stickiness = Math.min(1, Math.max(chars / maxChars, versions / 10));
+  const stage: Stage = stickiness < 1 / 3 ? "young" : stickiness < 2 / 3 ? "settling" : "mature";
+  const growth = stage === "young" ? Infinity : stage === "settling" ? Math.max(500, chars * 0.25) : Math.max(200, chars * 0.1);
+  return {
+    stage,
+    stickiness,
+    versions,
+    chars,
+    maxChars,
+    feedbackBatch: FEEDBACK_BATCH[stage],
+    nextAtMost: Math.min(maxChars, Math.floor(chars + growth)),
+  };
 }
 
 /** Refuses files a skill cannot be made of: no SKILL.md, or one whose frontmatter does not name it and say what it is for. */

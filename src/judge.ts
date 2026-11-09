@@ -2,7 +2,7 @@ import { spawn } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { z } from "zod";
-import type { Ballot, Comment, Feedback, Judgment, Policy, Proposal, ProposalRuling, SkillFile } from "./domain.ts";
+import type { Ballot, Comment, Feedback, Judgment, Maturity, Policy, Proposal, ProposalRuling, SkillFile } from "./domain.ts";
 
 /** A decision as the judge writes it: every field present, empty where unused, so one schema serves every case. */
 export const DecisionSchema = z.object({
@@ -38,6 +38,9 @@ export interface Case {
   skill: string;
   policy: Policy;
   version: number;
+  maturity: Maturity;
+  /** Why this judge's last attempt at the same case was refused, for it to correct. */
+  failure: string | null;
   files: SkillFile[];
   others: { name: string; description: string }[];
   proposals: ProposalCase[];
@@ -84,10 +87,13 @@ export function render(c: Case): string {
   const precedent = c.precedent
     .map((j) => `<judgment outcome="${j.outcome}" at="${j.startedAt}"${j.version ? ` made_version="${j.version}"` : ""}>${j.reasoning}</judgment>`)
     .join("\n");
+  const m = c.maturity;
   return [
     `<skill name="${c.skill}" version="${c.version}">`,
+    `<maturity stage="${m.stage}" versions="${m.versions}" characters="${m.chars}" cap="${m.maxChars}" next_version_at_most="${m.nextAtMost}"/>`,
     files("current_files", c.files),
     `</skill>`,
+    ...(c.failure ? [`<your_last_attempt_was_refused>\n${c.failure}\n</your_last_attempt_was_refused>`] : []),
     `<other_skills>\n${others || "none"}\n</other_skills>`,
     `<open_proposals>\n${proposals || "none"}\n</open_proposals>`,
     `<new_feedback>\n${feedback || "none"}\n</new_feedback>`,

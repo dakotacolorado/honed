@@ -48,7 +48,25 @@ CREATE TABLE IF NOT EXISTS rulings (
   judgment TEXT NOT NULL, proposal TEXT NOT NULL, ruling TEXT NOT NULL, reason TEXT NOT NULL,
   PRIMARY KEY (judgment, proposal)
 );
+CREATE TABLE IF NOT EXISTS tokens (
+  name TEXT PRIMARY KEY, hash TEXT NOT NULL UNIQUE, admin INTEGER NOT NULL, created_at TEXT NOT NULL
+);
+CREATE VIRTUAL TABLE IF NOT EXISTS search USING fts5(name, description, body, tokenize = 'porter unicode61');
 `;
+
+/** Columns added since a table was first made, so an older database is brought up to date in place. */
+const ADDED: [table: string, column: string, type: string][] = [["judgments", "actor", "TEXT"]];
+
+export interface Token {
+  name: string;
+  admin: boolean;
+  createdAt: string;
+}
+
+export interface Hit {
+  name: string;
+  snippet: string;
+}
 
 type Row = Record<string, unknown>;
 const s = (v: unknown) => v as string;
@@ -102,6 +120,7 @@ const judgment = (r: Row): Judgment => ({
   reasoning: s(r.reasoning),
   error: sn(r.error),
   version: nn(r.version),
+  actor: sn(r.actor),
 });
 const ruling = (r: Row): ProposalRuling => ({ judgment: s(r.judgment), proposal: s(r.proposal), ruling: s(r.ruling) as ProposalState, reason: s(r.reason) });
 
@@ -113,6 +132,10 @@ export class Store {
     this.db = new DatabaseSync(path);
     this.db.exec("PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON;");
     this.db.exec(SCHEMA);
+    for (const [table, column, type] of ADDED) {
+      const has = this.all(`PRAGMA table_info(${table})`).some((r) => r.name === column);
+      if (!has) this.db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${type}`);
+    }
   }
 
   close() {
@@ -279,7 +302,7 @@ export class Store {
   }
   putJudgment(j: Judgment): void {
     this.run(
-      `INSERT INTO judgments (id, skill, by, state, started_at, finished_at, outcome, reasoning, error, version) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `INSERT INTO judgments (id, skill, by, state, started_at, finished_at, outcome, reasoning, error, version, actor) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT (id) DO UPDATE SET state = excluded.state, finished_at = excluded.finished_at, outcome = excluded.outcome,
        reasoning = excluded.reasoning, error = excluded.error, version = excluded.version`,
       j.id,
@@ -292,6 +315,7 @@ export class Store {
       j.reasoning,
       j.error,
       j.version,
+      j.actor,
     );
   }
   /** Judgments left running by a server that stopped: they will never finish. */
@@ -310,5 +334,39 @@ export class Store {
   }
   addRuling(r: ProposalRuling): void {
     this.run("INSERT INTO rulings (judgment, proposal, ruling, reason) VALUES (?, ?, ?, ?)", r.judgment, r.proposal, r.ruling, r.reason);
+  }
+
+  /** A token is kept only as its hash; the name is who it speaks for. */
+  addToken(name: string, hash: string, admin: boolean, at: string): void {
+    this.run("INSERT INTO tokens (name, hash, admin, created_at) VALUES (?, ?, ?, ?)", name, hash, admin ? 1 : 0, at);
+  }
+  tokenByHash(hash: string): Token | undefined {
+    const r = this.get("SELECT * FROM tokens WHERE hash = ?", hash);
+    return r && { name: s(r.name), admin: n(r.admin) === 1, createdAt: s(r.created_at) };
+  }
+  tokens(): Token[] {
+    return this.all("SELECT * FROM tokens ORDER BY name").map((r) => ({ name: s(r.name), admin: n(r.admin) === 1, createdAt: s(r.created_at) }));
+  }
+  revokeToken(name: string): boolean {
+    const before = this.tokens().length;
+    this.run("DELETE FROM tokens WHERE name = ?", name);
+    return this.tokens().length < before;
+  }
+
+  /** Makes a skill's entry in the search index its current text. */
+  index(name: string, description: string, body: string): void {
+    this.run("DELETE FROM search WHERE name = ?", name);
+    this.run("INSERT INTO search (name, description, body) VALUES (?, ?, ?)", name, description, body);
+  }
+  /** Skills matching any word of `query`, best first, with where each matched. */
+  search(query: string, limit: number): Hit[] {
+    const terms = query.match(/[\p{L}\p{N}_]+/gu) ?? [];
+    if (terms.length === 0) return [];
+    const match = terms.map((t) => `"${t}"*`).join(" OR ");
+    return this.all(
+      "SELECT name, snippet(search, 2, '«', '»', '…', 12) AS snippet FROM search WHERE search MATCH ? ORDER BY bm25(search, 10.0, 5.0, 1.0) LIMIT ?",
+      match,
+      limit,
+    ).map((r) => ({ name: s(r.name), snippet: s(r.snippet) }));
   }
 }
