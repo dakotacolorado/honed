@@ -18,7 +18,7 @@ version is kept, with why it changed.
 ## Try it on your machine
 
 ```sh
-npx honed
+npx @dakotajp/honed
 claude mcp add --transport http --scope user honed http://127.0.0.1:4321/mcp
 ```
 
@@ -61,7 +61,7 @@ On a server, skills are revised through the Claude API with your organization's 
 Needs Node 24+ and git:
 
 ```sh
-npm install -g honed
+npm install -g @dakotajp/honed             # installs the honed command
 export ANTHROPIC_API_KEY=sk-ant-...        # revisions are billed to this key
 honed token create dakota --admin --dir /srv/honed
 honed --host 0.0.0.0 --judge api --dir /srv/honed
