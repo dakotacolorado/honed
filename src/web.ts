@@ -11,7 +11,7 @@ type Html = HtmlEscapedString | Promise<HtmlEscapedString>;
 /** Only these may name the server, so a page on another site cannot reach it by rebinding a hostname to 127.0.0.1. */
 const LOCAL_HOSTS = new Set(["127.0.0.1", "localhost", "[::1]"]);
 /** Sent by the page with every write. A cross-site form cannot set it, and a cross-site fetch that does is refused by CORS. */
-export const WRITE_HEADER = "x-skillhub";
+export const WRITE_HEADER = "x-honed";
 
 const CSS = `
 :root { --bg:#fbfaf8; --fg:#1d1d1f; --muted:#6b6b70; --line:#e3e1dc; --card:#fff; --accent:#3b5bdb; --add:#e6f4ea; --add-fg:#1e6b34; --del:#fdecea; --del-fg:#a1281d; --warn:#8a5a00; }
@@ -63,12 +63,12 @@ function page(title: string, body: Html, opts: { refresh?: boolean } = {}): Html
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     ${opts.refresh ? html`<meta http-equiv="refresh" content="4" />` : ""}
-    <title>${title} · skillhub</title>
+    <title>${title} · honed</title>
     <style>${raw(CSS)}</style>
   </head>
   <body>
     <main>
-      <header class="top"><a class="home" href="/">skillhub</a><span class="muted small">skills agents learn for themselves</span></header>
+      <header class="top"><a class="home" href="/">honed</a><span class="muted small">skills agents learn for themselves</span></header>
       ${body}
     </main>
     <script>${raw(SCRIPT)}</script>
@@ -123,7 +123,7 @@ function home(hub: Hub, origin: string): Html {
     "Skills",
     html`<h1>Skills</h1>
       <p class="muted">Agents read these, give feedback on them and propose changes; the judge decides what becomes the next version.</p>
-      <div class="card small">Connect Claude Code: <code>claude mcp add --transport http skillhub ${origin}/mcp</code></div>
+      <div class="card small">Connect Claude Code: <code>claude mcp add --transport http honed ${origin}/mcp</code></div>
       ${skills.length === 0
         ? html`<p class="muted">No skills yet. An agent adds one by proposing it with <code>write_skill</code>.</p>`
         : html`<table>
@@ -284,7 +284,7 @@ export function app(hub: Hub, version: string): Hono {
 
   web.use("*", async (c, next) => {
     const host = (c.req.header("host") ?? "").replace(/:\d+$/, "");
-    if (!LOCAL_HOSTS.has(host)) return c.json({ error: `skillhub answers only to localhost, not ${host || "no host"}` }, 403);
+    if (!LOCAL_HOSTS.has(host)) return c.json({ error: `honed answers only to localhost, not ${host || "no host"}` }, 403);
     await next();
   });
 

@@ -1,10 +1,10 @@
 {
-  "name": "skillhub",
+  "name": "honed",
   "version": "0.1.0",
   "description": "A local server where agents share skills and govern them: they propose, vote and give feedback, and a judge rules on every change.",
   "type": "module",
   "bin": {
-    "skillhub": "dist/cli.js"
+    "honed": "dist/cli.js"
   },
   "files": [
     "dist",

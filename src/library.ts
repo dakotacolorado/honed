@@ -33,8 +33,8 @@ export class Library {
     const exists = await access(join(this.root, ".git")).then(() => true, () => false);
     if (exists) return;
     await this.git(["init", "-q", "-b", "main"]);
-    await this.git(["config", "user.name", "skillhub"]);
-    await this.git(["config", "user.email", "skillhub@localhost"]);
+    await this.git(["config", "user.name", "honed"]);
+    await this.git(["config", "user.email", "honed@localhost"]);
     await this.git(["commit", "-q", "--allow-empty", "-m", "The library, empty"]);
   }
 
@@ -84,7 +84,7 @@ export class Library {
 
   /** The unified diff from one set of a skill's files to another. */
   async compare(before: SkillFile[], after: SkillFile[]): Promise<string> {
-    const tmp = await mkdtemp(join(tmpdir(), "skillhub-"));
+    const tmp = await mkdtemp(join(tmpdir(), "honed-"));
     try {
       for (const [side, files] of [["a", before], ["b", after]] as const) {
         await mkdir(join(tmp, side), { recursive: true });

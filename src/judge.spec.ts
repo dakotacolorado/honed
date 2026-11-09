@@ -28,7 +28,7 @@ test("a case for a skill that does not exist yet says so", () => {
 
 /** A stand-in for Claude Code that prints `output` and exits with `code`. */
 async function fakeClaude(output: unknown, code = 0): Promise<{ path: string; done: () => Promise<void> }> {
-  const dir = await mkdtemp(join(tmpdir(), "skillhub-claude-"));
+  const dir = await mkdtemp(join(tmpdir(), "honed-claude-"));
   const path = join(dir, "claude");
   await writeFile(path, `#!/bin/sh\ncat >/dev/null\ncat <<'EOF'\n${JSON.stringify(output)}\nEOF\nexit ${code}\n`);
   await chmod(path, 0o755);

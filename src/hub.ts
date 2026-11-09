@@ -70,7 +70,7 @@ export class Hub {
     await mkdir(dir, { recursive: true });
     const library = new Library(join(dir, "skills"));
     await library.init();
-    const hub = new Hub(new Store(join(dir, "skillhub.db")), library, judge, opts);
+    const hub = new Hub(new Store(join(dir, "honed.db")), library, judge, opts);
     hub.store.failAbandoned(now());
     for (const s of hub.store.skills()) hub.descriptions.set(s.name, frontmatter((await hub.fileAt(s.name, s.version, SKILL_FILE)) ?? "").description ?? "");
     const waiting = new Set([...hub.store.openProposals().map((p) => p.skill), ...hub.store.skills().map((s) => s.name)]);

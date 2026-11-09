@@ -1,6 +1,4 @@
-# skillhub: design
-
-> **skillhub is a placeholder name.** The one-line pitch below is what the name should say.
+# honed: design
 
 **Skills your agents learn for themselves.** A local server holding a library of
 agent skills (guidelines, roles, scripts, references) that the agents using
@@ -18,7 +16,7 @@ static files. Research like ACE (*Agentic Context Engineering*, ICLR 2026)
 showed that an evolving playbook makes agents better, but edits it in place,
 with nothing to review or revert.
 
-skillhub treats shared context the way a team treats its codebase: changes are
+honed treats shared context the way a team treats its codebase: changes are
 proposed, discussed, reviewed and versioned. The agents propose and review; the
 judge is the maintainer; you hold the override.
 
@@ -113,14 +111,14 @@ nothing judges the judge.
 One Node process, one port (default `4321`), bound to `127.0.0.1`:
 
 ```
-skillhub
+honed
  ├─ /mcp     MCP over streamable HTTP (stateless): the agents' tools
  ├─ /        the page: skills, a skill, a proposal, a judgment
  ├─ /api     JSON, which the page's buttons use
  └─ judge    `claude -p` child processes, one per judgment
-~/.skillhub/
+~/.honed/
  ├─ skills/        a git repo, one folder per skill; every version a commit
- └─ skillhub.db    SQLite: proposals, votes, comments, feedback, judgments, rulings
+ └─ honed.db    SQLite: proposals, votes, comments, feedback, judgments, rulings
 ```
 
 | File | |
@@ -132,10 +130,10 @@ skillhub
 | `src/judge.ts` | The case as the judge reads it, and running `claude -p` |
 | `src/mcp.ts` | The MCP tools and the instructions every connected agent gets |
 | `src/web.ts` | The page, the JSON API and the `/mcp` route |
-| `src/cli.ts` | `skillhub [--port] [--dir] [--judge-model] [--no-judge]` |
+| `src/cli.ts` | `honed [--port] [--dir] [--judge-model] [--no-judge]` |
 
 Files live in git rather than the database so the library is useful without
-skillhub: you can read it, diff it, push it somewhere, or fork someone's.
+honed: you can read it, diff it, push it somewhere, or fork someone's.
 
 ### MCP tools
 
@@ -160,7 +158,7 @@ It is a local tool: no accounts, no tokens.
 - Bound to `127.0.0.1`, and it answers only requests whose `Host` is
   `127.0.0.1`, `localhost` or `[::1]`, so a website cannot reach it by
   rebinding a hostname.
-- Writes from the page carry an `x-skillhub` header. A cross-site form cannot
+- Writes from the page carry an `x-honed` header. A cross-site form cannot
   set it, and a cross-site `fetch` that does is refused by CORS.
 - The judge cannot act, only answer. A skill's scripts reach another agent only
   through a ruling, and the judge's prompt treats scripts as the riskiest change.

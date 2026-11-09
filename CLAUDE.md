@@ -4,8 +4,6 @@ Keep it fact-dense, and prefer a mechanism (a type, a test, a refusal) to a
 comment. `docs/DESIGN.md` is the authority on what this is and why; change it
 with the code.
 
-- **skillhub is a placeholder name**: it is one token across the code, docs and
-  package, so renaming is one pass.
 - **The judge's brief is `src/judge-prompt.md`.** Every rule it gives the judge
   that the server can check (paths, SKILL.md frontmatter, sizes) is also checked
   in `domain.ts`, so a bad decision is refused rather than trusted.

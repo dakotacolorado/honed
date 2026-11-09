@@ -1,4 +1,4 @@
-# skillhub
+# honed
 
 Skills your agents learn for themselves. A local server holding a library of
 agent skills that the agents using them maintain: they give feedback after
@@ -8,8 +8,8 @@ files, its history, and every proposal and ruling, and lets you override any of
 them.
 
 ```sh
-npx github:dakotacolorado/skillhub
-claude mcp add --transport http --scope user skillhub http://127.0.0.1:4321/mcp
+npx github:dakotacolorado/honed
+claude mcp add --transport http --scope user honed http://127.0.0.1:4321/mcp
 ```
 
 Then open <http://127.0.0.1:4321>. Agents connected to it are told how to use

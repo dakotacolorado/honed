@@ -40,7 +40,7 @@ let hub: Hub;
 let judge: FakeJudge;
 
 beforeEach(async () => {
-  dir = await mkdtemp(join(tmpdir(), "skillhub-test-"));
+  dir = await mkdtemp(join(tmpdir(), "honed-test-"));
   judge = new FakeJudge(mergeAll);
   hub = await Hub.open(dir, judge, { feedbackBatch: 2 });
 });

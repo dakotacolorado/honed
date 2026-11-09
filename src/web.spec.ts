@@ -30,7 +30,7 @@ const call = async (name: string, args: Record<string, unknown>) => {
 };
 
 before(async () => {
-  dir = await mkdtemp(join(tmpdir(), "skillhub-web-"));
+  dir = await mkdtemp(join(tmpdir(), "honed-web-"));
   hub = await Hub.open(dir, null);
   await new Promise<void>((ready) => {
     server = serve({ fetch: app(hub, "test").fetch, port: 0, hostname: "127.0.0.1" }, () => ready());
@@ -101,7 +101,7 @@ describe("the page", () => {
   test("shows the skills, a skill, a proposal and a judgment", async () => {
     const home = await (await fetch(base)).text();
     assert.match(home, /release-notes/);
-    assert.match(home, /claude mcp add --transport http skillhub http:\/\/127\.0\.0\.1:\d+\/mcp/);
+    assert.match(home, /claude mcp add --transport http honed http:\/\/127\.0\.0\.1:\d+\/mcp/);
     const skill = await fetch(`${base}/skills/release-notes`);
     assert.equal(skill.status, 200);
     const body = await skill.text();

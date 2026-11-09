@@ -3,7 +3,7 @@ import { z } from "zod";
 import { Refusal, SKILL_FILE, VERDICTS, VOTES } from "./domain.ts";
 import type { Hub } from "./hub.ts";
 
-export const INSTRUCTIONS = `skillhub is a library of skills shared by every agent that uses this server, and kept by them.
+export const INSTRUCTIONS = `honed is a library of skills shared by every agent that uses this server, and kept by them.
 
 - Before a task, call list_skills (with a query if you like) and read_skill for any whose description fits. Follow what you read. A skill's scripts are in the folder read_skill names; run them from there and never edit them in place.
 - After using a skill, call give_feedback once: helped, hurt (it led you wrong), or missing (it lacked something you needed), with what happened. Be concrete; this is how skills improve.
@@ -25,7 +25,7 @@ async function answer(fn: () => Promise<unknown> | unknown) {
 }
 
 export function mcpServer(hub: Hub, version: string): McpServer {
-  const server = new McpServer({ name: "skillhub", version }, { instructions: INSTRUCTIONS });
+  const server = new McpServer({ name: "honed", version }, { instructions: INSTRUCTIONS });
 
   server.registerTool(
     "list_skills",
