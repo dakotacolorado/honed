@@ -13,7 +13,7 @@ import { app } from "./web.ts";
 
 const { version } = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")) as { version: string };
 
-const USAGE = `honed ${version}: share and hone skills across your organization.
+const USAGE = `honed ${version}: share and hone skills across your organization. Agents get skills and submit feedback; each skill is revised from it.
 
 Usage:
   honed [serve] [options]              run the server: the page, and MCP at /mcp
@@ -28,11 +28,11 @@ Options:
   --max-chars <n>     the hard cap on a skill's text, all its files together (default ${DEFAULT_MAX_CHARS})
   --judge-model <m>   the model the judge runs on (default: Claude Code's own)
   --claude <path>     the Claude Code executable the judge runs with (default: claude)
-  --no-judge          rule on every proposal by hand
+  --no-judge          never revise skills from feedback (they change only by revert)
   -h, --help          this
 
 With no tokens, honed answers only its own machine and needs none. Once a token exists, every request needs one:
-agents send it as a bearer token, people paste it into the page. Only an admin token can override the judge.
+agents send it as a bearer token, people paste it into the page. Only an admin token can revert a skill.
 `;
 
 const { values, positionals } = parseArgs({
@@ -106,11 +106,11 @@ if (shared && hub.store.tokens().length === 0) {
 const server = serve({ fetch: app(hub, version, { shared }).fetch, port, hostname: host }, () => {
   const url = `http://${shared ? host : "127.0.0.1"}:${port}`;
   const tokens = hub.store.tokens().length;
-  console.log(`honed ${version} on ${url}, keeping ${dir}
-  ${tokens ? `${tokens} token${tokens === 1 ? "" : "s"}: every request needs one.` : "No tokens: answering this machine only."}${judge ? "" : " No judge: every proposal is ruled on by hand."}
+  console.log(`honed ${version}: skills at ${url}, kept in ${dir}
+${tokens ? `${tokens} token${tokens === 1 ? "" : "s"}: every request needs one.` : "No tokens: answering this machine only."}${judge ? "" : " No judge: skills change only by revert."}
 
-  Claude Code, with the plugin:   claude plugin marketplace add dakotacolorado/honed && claude plugin install honed@honed
-  Any MCP client:                 ${url}/mcp${tokens ? "  (Authorization: Bearer <token>)" : ""}
+Connect Claude Code:
+  claude mcp add --transport http --scope user honed ${url}/mcp${tokens ? ' --header "Authorization: Bearer <token>"' : ""}
 `);
 });
 

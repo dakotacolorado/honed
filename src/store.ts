@@ -1,61 +1,25 @@
 import { DatabaseSync } from "node:sqlite";
-import type {
-  Ballot,
-  Change,
-  Comment,
-  Feedback,
-  Judgment,
-  Policy,
-  Proposal,
-  ProposalRuling,
-  ProposalState,
-  Skill,
-  Version,
-} from "./domain.ts";
+import type { DraftFile, Feedback, Judgment, Skill, Version } from "./domain.ts";
 
 const SCHEMA = `
-CREATE TABLE IF NOT EXISTS skills (
-  name TEXT PRIMARY KEY, policy TEXT NOT NULL, version INTEGER NOT NULL, created_at TEXT NOT NULL
-);
+CREATE TABLE IF NOT EXISTS skills (name TEXT PRIMARY KEY, version INTEGER NOT NULL, created_at TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS versions (
   skill TEXT NOT NULL, version INTEGER NOT NULL, commit_id TEXT NOT NULL, note TEXT NOT NULL,
-  by TEXT NOT NULL, judgment TEXT NOT NULL, at TEXT NOT NULL, PRIMARY KEY (skill, version)
-);
-CREATE TABLE IF NOT EXISTS proposals (
-  id TEXT PRIMARY KEY, skill TEXT NOT NULL, base_version INTEGER NOT NULL, title TEXT NOT NULL, why TEXT NOT NULL,
-  change TEXT NOT NULL, author TEXT NOT NULL, state TEXT NOT NULL, created_at TEXT NOT NULL,
-  decided_at TEXT, judgment TEXT
-);
-CREATE INDEX IF NOT EXISTS proposals_by_skill ON proposals (skill, state);
-CREATE TABLE IF NOT EXISTS votes (
-  proposal TEXT NOT NULL, author TEXT NOT NULL, vote TEXT NOT NULL, reason TEXT NOT NULL, at TEXT NOT NULL,
-  PRIMARY KEY (proposal, author)
-);
-CREATE TABLE IF NOT EXISTS comments (
-  id TEXT PRIMARY KEY, proposal TEXT NOT NULL, body TEXT NOT NULL, author TEXT NOT NULL, at TEXT NOT NULL
+  judgment TEXT NOT NULL, at TEXT NOT NULL, PRIMARY KEY (skill, version)
 );
 CREATE TABLE IF NOT EXISTS feedback (
-  id TEXT PRIMARY KEY, skill TEXT NOT NULL, version INTEGER NOT NULL, verdict TEXT NOT NULL, reason TEXT NOT NULL,
+  id TEXT PRIMARY KEY, skill TEXT NOT NULL, version INTEGER NOT NULL, text TEXT NOT NULL, draft TEXT NOT NULL,
   author TEXT NOT NULL, at TEXT NOT NULL, judgment TEXT
 );
 CREATE INDEX IF NOT EXISTS feedback_by_skill ON feedback (skill, judgment);
 CREATE TABLE IF NOT EXISTS judgments (
-  id TEXT PRIMARY KEY, skill TEXT NOT NULL, by TEXT NOT NULL, state TEXT NOT NULL, started_at TEXT NOT NULL,
-  finished_at TEXT, outcome TEXT, reasoning TEXT NOT NULL, error TEXT, version INTEGER
+  id TEXT PRIMARY KEY, skill TEXT NOT NULL, by TEXT NOT NULL, actor TEXT, state TEXT NOT NULL, started_at TEXT NOT NULL,
+  finished_at TEXT, changed INTEGER, reasoning TEXT NOT NULL, error TEXT, version INTEGER
 );
 CREATE INDEX IF NOT EXISTS judgments_by_skill ON judgments (skill, started_at);
-CREATE TABLE IF NOT EXISTS rulings (
-  judgment TEXT NOT NULL, proposal TEXT NOT NULL, ruling TEXT NOT NULL, reason TEXT NOT NULL,
-  PRIMARY KEY (judgment, proposal)
-);
-CREATE TABLE IF NOT EXISTS tokens (
-  name TEXT PRIMARY KEY, hash TEXT NOT NULL UNIQUE, admin INTEGER NOT NULL, created_at TEXT NOT NULL
-);
+CREATE TABLE IF NOT EXISTS tokens (name TEXT PRIMARY KEY, hash TEXT NOT NULL UNIQUE, admin INTEGER NOT NULL, created_at TEXT NOT NULL);
 CREATE VIRTUAL TABLE IF NOT EXISTS search USING fts5(name, description, body, tokenize = 'porter unicode61');
 `;
-
-/** Columns added since a table was first made, so an older database is brought up to date in place. */
-const ADDED: [table: string, column: string, type: string][] = [["judgments", "actor", "TEXT"]];
 
 export interface Token {
   name: string;
@@ -69,42 +33,20 @@ export interface Hit {
 }
 
 type Row = Record<string, unknown>;
+type Param = string | number | null;
 const s = (v: unknown) => v as string;
 const n = (v: unknown) => Number(v);
 const sn = (v: unknown) => (v === null || v === undefined ? null : String(v));
 const nn = (v: unknown) => (v === null || v === undefined ? null : Number(v));
 
-const skill = (r: Row): Skill => ({ name: s(r.name), policy: s(r.policy) as Policy, version: n(r.version), createdAt: s(r.created_at) });
-const version = (r: Row): Version => ({
-  skill: s(r.skill),
-  version: n(r.version),
-  commit: s(r.commit_id),
-  note: s(r.note),
-  by: s(r.by) as Version["by"],
-  judgment: s(r.judgment),
-  at: s(r.at),
-});
-const proposal = (r: Row): Proposal => ({
-  id: s(r.id),
-  skill: s(r.skill),
-  baseVersion: n(r.base_version),
-  title: s(r.title),
-  why: s(r.why),
-  change: JSON.parse(s(r.change)) as Change,
-  author: s(r.author),
-  state: s(r.state) as ProposalState,
-  createdAt: s(r.created_at),
-  decidedAt: sn(r.decided_at),
-  judgment: sn(r.judgment),
-});
-const ballot = (r: Row): Ballot => ({ proposal: s(r.proposal), vote: s(r.vote) as Ballot["vote"], reason: s(r.reason), author: s(r.author), at: s(r.at) });
-const comment = (r: Row): Comment => ({ id: s(r.id), proposal: s(r.proposal), body: s(r.body), author: s(r.author), at: s(r.at) });
+const skill = (r: Row): Skill => ({ name: s(r.name), version: n(r.version), createdAt: s(r.created_at) });
+const version = (r: Row): Version => ({ skill: s(r.skill), version: n(r.version), commit: s(r.commit_id), note: s(r.note), judgment: s(r.judgment), at: s(r.at) });
 const feedback = (r: Row): Feedback => ({
   id: s(r.id),
   skill: s(r.skill),
   version: n(r.version),
-  verdict: s(r.verdict) as Feedback["verdict"],
-  reason: s(r.reason),
+  text: s(r.text),
+  draft: JSON.parse(s(r.draft)) as DraftFile[],
   author: s(r.author),
   at: s(r.at),
   judgment: sn(r.judgment),
@@ -113,29 +55,25 @@ const judgment = (r: Row): Judgment => ({
   id: s(r.id),
   skill: s(r.skill),
   by: s(r.by) as Judgment["by"],
+  actor: sn(r.actor),
   state: s(r.state) as Judgment["state"],
   startedAt: s(r.started_at),
   finishedAt: sn(r.finished_at),
-  outcome: sn(r.outcome) as Judgment["outcome"],
+  changed: r.changed === null || r.changed === undefined ? null : n(r.changed) === 1,
   reasoning: s(r.reasoning),
   error: sn(r.error),
   version: nn(r.version),
-  actor: sn(r.actor),
 });
-const ruling = (r: Row): ProposalRuling => ({ judgment: s(r.judgment), proposal: s(r.proposal), ruling: s(r.ruling) as ProposalState, reason: s(r.reason) });
+const token = (r: Row): Token => ({ name: s(r.name), admin: n(r.admin) === 1, createdAt: s(r.created_at) });
 
-/** Everything about the skills but their files: proposals, votes, comments, feedback, judgments and the versions they made. */
+/** Everything but the skills' files: their versions, the feedback on them, the judgments, the tokens and the search index. */
 export class Store {
   private db: DatabaseSync;
 
   constructor(path: string) {
     this.db = new DatabaseSync(path);
-    this.db.exec("PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON;");
+    this.db.exec("PRAGMA journal_mode = WAL;");
     this.db.exec(SCHEMA);
-    for (const [table, column, type] of ADDED) {
-      const has = this.all(`PRAGMA table_info(${table})`).some((r) => r.name === column);
-      if (!has) this.db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${type}`);
-    }
   }
 
   close() {
@@ -155,13 +93,13 @@ export class Store {
     }
   }
 
-  private all(sql: string, ...params: (string | number | null)[]): Row[] {
+  private all(sql: string, ...params: Param[]): Row[] {
     return this.db.prepare(sql).all(...params) as Row[];
   }
-  private get(sql: string, ...params: (string | number | null)[]): Row | undefined {
+  private get(sql: string, ...params: Param[]): Row | undefined {
     return this.db.prepare(sql).get(...params) as Row | undefined;
   }
-  private run(sql: string, ...params: (string | number | null)[]): void {
+  private run(sql: string, ...params: Param[]): void {
     this.db.prepare(sql).run(...params);
   }
 
@@ -173,13 +111,7 @@ export class Store {
     return r && skill(r);
   }
   putSkill(v: Skill): void {
-    this.run(
-      "INSERT INTO skills (name, policy, version, created_at) VALUES (?, ?, ?, ?) ON CONFLICT (name) DO UPDATE SET policy = excluded.policy, version = excluded.version",
-      v.name,
-      v.policy,
-      v.version,
-      v.createdAt,
-    );
+    this.run("INSERT INTO skills (name, version, created_at) VALUES (?, ?, ?) ON CONFLICT (name) DO UPDATE SET version = excluded.version", v.name, v.version, v.createdAt);
   }
 
   versions(name: string): Version[] {
@@ -190,104 +122,40 @@ export class Store {
     return r && version(r);
   }
   addVersion(v: Version): void {
-    this.run(
-      "INSERT INTO versions (skill, version, commit_id, note, by, judgment, at) VALUES (?, ?, ?, ?, ?, ?, ?)",
-      v.skill,
-      v.version,
-      v.commit,
-      v.note,
-      v.by,
-      v.judgment,
-      v.at,
-    );
-  }
-
-  proposals(name: string, state?: ProposalState): Proposal[] {
-    return state
-      ? this.all("SELECT * FROM proposals WHERE skill = ? AND state = ? ORDER BY created_at", name, state).map(proposal)
-      : this.all("SELECT * FROM proposals WHERE skill = ? ORDER BY created_at DESC", name).map(proposal);
-  }
-  openProposals(): Proposal[] {
-    return this.all("SELECT * FROM proposals WHERE state = 'open' ORDER BY created_at").map(proposal);
-  }
-  proposal(id: string): Proposal | undefined {
-    const r = this.get("SELECT * FROM proposals WHERE id = ?", id);
-    return r && proposal(r);
-  }
-  addProposal(p: Proposal): void {
-    this.run(
-      "INSERT INTO proposals (id, skill, base_version, title, why, change, author, state, created_at, decided_at, judgment) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-      p.id,
-      p.skill,
-      p.baseVersion,
-      p.title,
-      p.why,
-      JSON.stringify(p.change),
-      p.author,
-      p.state,
-      p.createdAt,
-      p.decidedAt,
-      p.judgment,
-    );
-  }
-  decideProposal(id: string, state: ProposalState, judgment: string, at: string): void {
-    this.run("UPDATE proposals SET state = ?, judgment = ?, decided_at = ? WHERE id = ? AND state = 'open'", state, judgment, at, id);
-  }
-
-  votes(proposal: string): Ballot[] {
-    return this.all("SELECT * FROM votes WHERE proposal = ? ORDER BY at", proposal).map(ballot);
-  }
-  /** One vote per author on a proposal: a second replaces the first. */
-  putVote(b: Ballot): void {
-    this.run(
-      "INSERT INTO votes (proposal, author, vote, reason, at) VALUES (?, ?, ?, ?, ?) ON CONFLICT (proposal, author) DO UPDATE SET vote = excluded.vote, reason = excluded.reason, at = excluded.at",
-      b.proposal,
-      b.author,
-      b.vote,
-      b.reason,
-      b.at,
-    );
-  }
-
-  comments(proposal: string): Comment[] {
-    return this.all("SELECT * FROM comments WHERE proposal = ? ORDER BY at", proposal).map(comment);
-  }
-  addComment(c: Comment): void {
-    this.run("INSERT INTO comments (id, proposal, body, author, at) VALUES (?, ?, ?, ?, ?)", c.id, c.proposal, c.body, c.author, c.at);
+    this.run("INSERT INTO versions (skill, version, commit_id, note, judgment, at) VALUES (?, ?, ?, ?, ?, ?)", v.skill, v.version, v.commit, v.note, v.judgment, v.at);
   }
 
   feedback(name: string, limit = 100): Feedback[] {
     return this.all("SELECT * FROM feedback WHERE skill = ? ORDER BY at DESC LIMIT ?", name, limit).map(feedback);
   }
-  unconsidered(name: string): Feedback[] {
-    return this.all("SELECT * FROM feedback WHERE skill = ? AND judgment IS NULL ORDER BY at", name).map(feedback);
+  /** Feedback no judgment has considered, oldest first, on every skill or one. */
+  waiting(name?: string): Feedback[] {
+    return (name
+      ? this.all("SELECT * FROM feedback WHERE judgment IS NULL AND skill = ? ORDER BY at", name)
+      : this.all("SELECT * FROM feedback WHERE judgment IS NULL ORDER BY at")
+    ).map(feedback);
   }
   feedbackOf(judgment: string): Feedback[] {
     return this.all("SELECT * FROM feedback WHERE judgment = ? ORDER BY at", judgment).map(feedback);
   }
   addFeedback(f: Feedback): void {
     this.run(
-      "INSERT INTO feedback (id, skill, version, verdict, reason, author, at, judgment) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+      "INSERT INTO feedback (id, skill, version, text, draft, author, at, judgment) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
       f.id,
       f.skill,
       f.version,
-      f.verdict,
-      f.reason,
+      f.text,
+      JSON.stringify(f.draft),
       f.author,
       f.at,
       f.judgment,
     );
   }
-  considerFeedback(ids: string[], judgment: string): void {
+  consider(ids: string[], judgment: string): void {
     for (const id of ids) this.run("UPDATE feedback SET judgment = ? WHERE id = ? AND judgment IS NULL", judgment, id);
   }
-  /** Each verdict's count on a skill since `version`, inclusive. */
-  verdictCounts(name: string, sinceVersion: number): Record<string, number> {
-    const out: Record<string, number> = { helped: 0, hurt: 0, missing: 0 };
-    for (const r of this.all("SELECT verdict, COUNT(*) AS c FROM feedback WHERE skill = ? AND version >= ? GROUP BY verdict", name, sinceVersion)) {
-      out[s(r.verdict)] = n(r.c);
-    }
-    return out;
+  feedbackCount(name: string, sinceVersion: number): number {
+    return n(this.get("SELECT COUNT(*) AS c FROM feedback WHERE skill = ? AND version >= ?", name, sinceVersion)?.c);
   }
 
   judgments(name: string, limit = 50): Judgment[] {
@@ -302,20 +170,20 @@ export class Store {
   }
   putJudgment(j: Judgment): void {
     this.run(
-      `INSERT INTO judgments (id, skill, by, state, started_at, finished_at, outcome, reasoning, error, version, actor) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-       ON CONFLICT (id) DO UPDATE SET state = excluded.state, finished_at = excluded.finished_at, outcome = excluded.outcome,
+      `INSERT INTO judgments (id, skill, by, actor, state, started_at, finished_at, changed, reasoning, error, version) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT (id) DO UPDATE SET state = excluded.state, finished_at = excluded.finished_at, changed = excluded.changed,
        reasoning = excluded.reasoning, error = excluded.error, version = excluded.version`,
       j.id,
       j.skill,
       j.by,
+      j.actor,
       j.state,
       j.startedAt,
       j.finishedAt,
-      j.outcome,
+      j.changed === null ? null : j.changed ? 1 : 0,
       j.reasoning,
       j.error,
       j.version,
-      j.actor,
     );
   }
   /** Judgments left running by a server that stopped: they will never finish. */
@@ -323,34 +191,21 @@ export class Store {
     this.run("UPDATE judgments SET state = 'failed', error = 'the server stopped before it finished', finished_at = ? WHERE state = 'running'", at);
   }
 
-  rulingsOf(judgment: string): ProposalRuling[] {
-    return this.all("SELECT * FROM rulings WHERE judgment = ?", judgment).map(ruling);
-  }
-  rulingsOn(proposal: string): ProposalRuling[] {
-    return this.all(
-      "SELECT r.* FROM rulings r JOIN judgments j ON j.id = r.judgment WHERE r.proposal = ? ORDER BY j.started_at",
-      proposal,
-    ).map(ruling);
-  }
-  addRuling(r: ProposalRuling): void {
-    this.run("INSERT INTO rulings (judgment, proposal, ruling, reason) VALUES (?, ?, ?, ?)", r.judgment, r.proposal, r.ruling, r.reason);
-  }
-
-  /** A token is kept only as its hash; the name is who it speaks for. */
+  /** A token is kept only as its hash; its name is who it speaks for. */
   addToken(name: string, hash: string, admin: boolean, at: string): void {
     this.run("INSERT INTO tokens (name, hash, admin, created_at) VALUES (?, ?, ?, ?)", name, hash, admin ? 1 : 0, at);
   }
   tokenByHash(hash: string): Token | undefined {
     const r = this.get("SELECT * FROM tokens WHERE hash = ?", hash);
-    return r && { name: s(r.name), admin: n(r.admin) === 1, createdAt: s(r.created_at) };
+    return r && token(r);
   }
   tokens(): Token[] {
-    return this.all("SELECT * FROM tokens ORDER BY name").map((r) => ({ name: s(r.name), admin: n(r.admin) === 1, createdAt: s(r.created_at) }));
+    return this.all("SELECT * FROM tokens ORDER BY name").map(token);
   }
   revokeToken(name: string): boolean {
-    const before = this.tokens().length;
+    const had = this.get("SELECT 1 AS x FROM tokens WHERE name = ?", name) !== undefined;
     this.run("DELETE FROM tokens WHERE name = ?", name);
-    return this.tokens().length < before;
+    return had;
   }
 
   /** Makes a skill's entry in the search index its current text. */
@@ -362,10 +217,9 @@ export class Store {
   search(query: string, limit: number): Hit[] {
     const terms = query.match(/[\p{L}\p{N}_]+/gu) ?? [];
     if (terms.length === 0) return [];
-    const match = terms.map((t) => `"${t}"*`).join(" OR ");
     return this.all(
       "SELECT name, snippet(search, 2, '«', '»', '…', 12) AS snippet FROM search WHERE search MATCH ? ORDER BY bm25(search, 10.0, 5.0, 1.0) LIMIT ?",
-      match,
+      terms.map((t) => `"${t}"*`).join(" OR "),
       limit,
     ).map((r) => ({ name: s(r.name), snippet: s(r.snippet) }));
   }

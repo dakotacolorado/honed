@@ -9,11 +9,22 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, before, describe, test } from "node:test";
 import { createToken } from "./auth.ts";
+import type { Decision, Judge } from "./judge.ts";
 import { Hub } from "./hub.ts";
 import { app, WRITE_HEADER } from "./web.ts";
 
 const skillMd = `---\nname: release-notes\ndescription: Writing release notes from merged PRs.\n---\n\nGroup by user-facing change.\n`;
 const WRITE = { "content-type": "application/json", [WRITE_HEADER]: "1" };
+
+/** Takes the newest draft as it is. */
+const takeDraft: Judge = {
+  async decide(c) {
+    const d = [...c.feedback].reverse().find((f) => f.draft.length);
+    return (d
+      ? { reasoning: "Supported by the report.", changed: true, note: d.text, write: d.draft.map((f) => ({ ...f, executable: f.executable ?? false })), remove: [] }
+      : { reasoning: "Not yet.", changed: false, note: "", write: [], remove: [] }) satisfies Decision;
+  },
+};
 
 interface Running {
   hub: Hub;
@@ -23,7 +34,7 @@ interface Running {
 
 async function start(opts: { shared?: boolean } = {}): Promise<Running> {
   const dir = await mkdtemp(join(tmpdir(), "honed-web-"));
-  const hub = await Hub.open(dir, null);
+  const hub = await Hub.open(dir, takeDraft);
   let server!: ServerType;
   await new Promise<void>((ready) => {
     server = serve({ fetch: app(hub, "test", opts).fetch, port: 0, hostname: "127.0.0.1" }, () => ready());
@@ -32,6 +43,7 @@ async function start(opts: { shared?: boolean } = {}): Promise<Running> {
     hub,
     base: `http://127.0.0.1:${(server.address() as AddressInfo).port}`,
     close: async () => {
+      await hub.idle();
       server.close();
       hub.close();
       await rm(dir, { recursive: true, force: true });
@@ -76,86 +88,71 @@ describe("a local server, with no tokens", () => {
     await s.close();
   });
 
-  test("says how to use it, and offers its tools", async () => {
-    assert.match(client.getInstructions() ?? "", /give_feedback/);
+  test("says how to use it, and offers four tools", async () => {
+    assert.match(client.getInstructions() ?? "", /submit_feedback/);
     const tools = (await client.listTools()).tools.map((t) => t.name).sort();
-    assert.deepEqual(tools, ["comment", "get_proposal", "give_feedback", "list_skills", "read_file", "read_skill", "search_skills", "vote", "write_skill"]);
+    assert.deepEqual(tools, ["get_skill", "list_skills", "search_skills", "submit_feedback"]);
   });
 
-  test("takes a proposal, votes, comments and feedback, and serves and finds the skill once merged", async () => {
-    const proposed = await call(client, "write_skill", {
+  test("makes a skill from feedback with a draft, then lists, finds and gets it", async () => {
+    const sent = await call(client, "submit_feedback", {
       name: "release-notes",
-      title: "Add release notes",
-      why: "Every release I rewrote the notes by hand.",
-      write: [{ path: "SKILL.md", content: skillMd }, { path: "scripts/prs.sh", content: "#!/bin/sh\ngh pr list --state merged\n", executable: true }],
+      feedback: "Every release I rewrote the notes by hand.",
+      files: [{ path: "SKILL.md", content: skillMd }, { path: "scripts/prs.sh", content: "#!/bin/sh\ngh pr list --state merged\n", executable: true }],
       author: "writer",
     });
-    assert.equal(proposed.isError, false);
-    const id = proposed.value.proposal as string;
-    assert.equal(s.hub.proposal(id).author, "writer");
+    assert.equal(sent.isError, false);
+    await s.hub.idle();
 
-    assert.equal((await call(client, "vote", { proposal: id, vote: "up", reason: "Same here.", author: "a" })).isError, false);
-    assert.equal((await call(client, "comment", { proposal: id, body: "Mention breaking changes first?" })).isError, false);
-    const pending = await call(client, "get_proposal", { id });
-    assert.equal(pending.value.state, "open");
-    assert.match(pending.value.diff, /\+Group by user-facing change\./);
-
-    await s.hub.merge(id, "Yes.");
-
-    assert.deepEqual((await call(client, "list_skills")).value, [
-      { name: "release-notes", description: "Writing release notes from merged PRs.", version: 1, stage: "young", openProposals: 0 },
-    ]);
+    assert.deepEqual((await call(client, "list_skills")).value, [{ name: "release-notes", description: "Writing release notes from merged PRs.", version: 1 }]);
     const found = await call(client, "search_skills", { query: "grouping user" });
     assert.equal(found.value[0].name, "release-notes");
     assert.match(found.value[0].matched, /«/);
-    const read = await call(client, "read_skill", { name: "release-notes" });
-    assert.equal(read.value["SKILL.md"], skillMd);
-    assert.deepEqual(read.value.files, [{ path: "scripts/prs.sh", executable: true, bytes: 36 }]);
-    assert.equal(read.value.folder, s.hub.library.path("release-notes"));
-    assert.equal(read.value.stage, "young");
-    assert.match((await call(client, "read_file", { name: "release-notes", path: "scripts/prs.sh" })).value, /gh pr list/);
-    assert.equal((await call(client, "give_feedback", { name: "release-notes", verdict: "helped", reason: "Saved the grouping." })).isError, false);
+    const got = await call(client, "get_skill", { name: "release-notes" });
+    assert.equal(got.value["SKILL.md"], skillMd);
+    assert.deepEqual(got.value.files, [{ path: "scripts/prs.sh", executable: true }]);
+    assert.match((await call(client, "get_skill", { name: "release-notes", path: "scripts/prs.sh" })).value, /gh pr list/);
+    assert.equal(s.hub.store.feedback("release-notes")[0]?.author, "writer");
+    assert.equal((await call(client, "submit_feedback", { name: "release-notes", feedback: "Saved me the grouping." })).isError, false);
   });
 
-  test("answers a refusal as a tool error, in the hub's words", async () => {
-    const bad = await call(client, "write_skill", { name: "Bad Name", title: "t", why: "w", write: [{ path: "SKILL.md", content: "" }] });
+  test("answers a refusal as a tool error, in the server's words", async () => {
+    const bad = await call(client, "submit_feedback", { name: "Bad Name", feedback: "t" });
     assert.equal(bad.isError, true);
     assert.match(bad.value, /lowercase letters/);
-    assert.match((await call(client, "read_skill", { name: "nope" })).value, /no skill is named nope/);
+    assert.match((await call(client, "get_skill", { name: "nope" })).value, /no skill is named nope/);
+    assert.match((await call(client, "get_skill", { name: "release-notes", path: "nope.md" })).value, /has no file nope\.md/);
   });
 
-  test("shows the skills, a search, a skill, a proposal and a judgment", async () => {
+  test("shows the skills, a search, a skill with its feedback and history, and why it changed", async () => {
     const home = await (await fetch(s.base)).text();
     assert.match(home, /release-notes/);
-    assert.match(home, /claude plugin install honed@honed --config url=http:\/\/127\.0\.0\.1:\d+/);
     assert.match(home, /claude mcp add --transport http --scope user honed http:\/\/127\.0\.0\.1:\d+\/mcp</);
     assert.match(await (await fetch(`${s.base}/?q=grouping`)).text(), /release-notes/);
     assert.match(await (await fetch(`${s.base}/?q=zebra`)).text(), /No skill mentions that/);
     const body = await (await fetch(`${s.base}/skills/release-notes`)).text();
     assert.match(body, /Group by user-facing change\./);
-    assert.match(body, /Saved the grouping\./);
-    assert.match(body, /<b>young<\/b>/);
-    const [proposal] = s.hub.store.proposals("release-notes");
-    assert.match(await (await fetch(`${s.base}/proposals/${proposal!.id}`)).text(), /Same here\./);
-    assert.match(await (await fetch(`${s.base}/judgments/${proposal!.judgment}`)).text(), /Yes\./);
+    assert.match(body, /Saved me the grouping\./);
+    assert.match(body, /Their draft: SKILL\.md, scripts\/prs\.sh/);
+    const [v] = s.hub.store.versions("release-notes");
+    const why = await (await fetch(`${s.base}/judgments/${v!.judgment}`)).text();
+    assert.match(why, /Supported by the report\./);
+    assert.match(why, /Every release I rewrote the notes by hand\./);
   });
 
   test("escapes what agents wrote", async () => {
-    const p = await s.hub.propose({ skill: "release-notes", title: "<script>alert(1)</script>", why: "w", change: { write: [{ path: "SKILL.md", content: skillMd + "more\n" }], remove: [] } });
-    const body = await (await fetch(`${s.base}/proposals/${p.id}`)).text();
+    await s.hub.submitFeedback({ skill: "release-notes", text: "<script>alert(1)</script>" });
+    const body = await (await fetch(`${s.base}/skills/release-notes`)).text();
     assert.doesNotMatch(body, /<script>alert/);
     assert.match(body, /&lt;script&gt;alert/);
   });
 
-  test("a write without the write header is refused, and with it a refusal comes back in the hub's words", async () => {
-    const [open] = s.hub.store.proposals("release-notes", "open");
-    const bare = await fetch(`${s.base}/api/proposals/${open!.id}/reject`, { method: "POST", headers: { "content-type": "application/json" }, body: "{}" });
+  test("a write without the write header is refused, and with it a refusal comes back in the server's words", async () => {
+    const bare = await fetch(`${s.base}/api/skills/release-notes/revert`, { method: "POST", headers: { "content-type": "application/json" }, body: "{}" });
     assert.equal(bare.status, 403);
-    assert.equal(s.hub.proposal(open!.id).state, "open");
-    assert.equal((await fetch(`${s.base}/api/proposals/${open!.id}/reject`, { method: "POST", headers: WRITE, body: JSON.stringify({ reason: "No." }) })).status, 200);
-    const again = await fetch(`${s.base}/api/proposals/${open!.id}/reject`, { method: "POST", headers: WRITE, body: "{}" });
-    assert.equal(again.status, 409);
-    assert.match(((await again.json()) as { error: string }).error, /is rejected/);
+    const refused = await fetch(`${s.base}/api/skills/release-notes/revert`, { method: "POST", headers: WRITE, body: JSON.stringify({ version: "1" }) });
+    assert.equal(refused.status, 400);
+    assert.match(((await refused.json()) as { error: string }).error, /from 1 to 0/);
   });
 
   test("answers only to a local hostname", async () => {
@@ -189,21 +186,24 @@ describe("a server with tokens", () => {
     assert.equal(await statusWithHost(s.base, "honed.example.com"), 401);
   });
 
-  test("attributes what an agent writes to its token, with the role it gave", async () => {
+  test("attributes feedback to its token, with the role the agent gave", async () => {
     const client = await connect(s.base, agent);
-    const p = await call(client, "write_skill", { name: "x", title: "t", why: "w", write: [{ path: "SKILL.md", content: "---\nname: x\ndescription: d\n---\n" }], author: "reviewer on PR 3" });
-    assert.equal(s.hub.proposal(p.value.proposal).author, "ci-agent (reviewer on PR 3)");
-    const q = await call(client, "write_skill", { name: "y", title: "t", why: "w", write: [{ path: "SKILL.md", content: "---\nname: y\ndescription: d\n---\n" }] });
-    assert.equal(s.hub.proposal(q.value.proposal).author, "ci-agent");
+    await call(client, "submit_feedback", { name: "x", feedback: "make it", files: [{ path: "SKILL.md", content: "---\nname: x\ndescription: d\n---\n" }], author: "reviewer on PR 3" });
+    await call(client, "submit_feedback", { name: "x", feedback: "plain" });
+    await s.hub.idle();
+    assert.deepEqual(s.hub.store.feedback("x").map((f) => f.author).sort(), ["ci-agent", "ci-agent (reviewer on PR 3)"]);
     await client.close();
   });
 
-  test("lets only an admin override the judge, and records who did", async () => {
-    const [open] = s.hub.store.openProposals();
-    const asAgent = await fetch(`${s.base}/api/proposals/${open!.id}/merge`, { method: "POST", headers: { ...WRITE, authorization: `Bearer ${agent}` }, body: "{}" });
+  test("lets only an admin revert, and records who did", async () => {
+    const client = await connect(s.base, agent);
+    await call(client, "submit_feedback", { name: "x", feedback: "v2", files: [{ path: "SKILL.md", content: "---\nname: x\ndescription: d2\n---\n" }] });
+    await client.close();
+    await s.hub.idle();
+    const asAgent = await fetch(`${s.base}/api/skills/x/revert`, { method: "POST", headers: { ...WRITE, authorization: `Bearer ${agent}` }, body: JSON.stringify({ version: 1 }) });
     assert.equal(asAgent.status, 403);
     assert.match(((await asAgent.json()) as { error: string }).error, /admin token/);
-    const asAdmin = await fetch(`${s.base}/api/proposals/${open!.id}/merge`, { method: "POST", headers: { ...WRITE, authorization: `Bearer ${admin}` }, body: "{}" });
+    const asAdmin = await fetch(`${s.base}/api/skills/x/revert`, { method: "POST", headers: { ...WRITE, authorization: `Bearer ${admin}` }, body: JSON.stringify({ version: 1 }) });
     assert.equal(asAdmin.status, 200);
     assert.equal(((await asAdmin.json()) as { actor: string }).actor, "dakota");
   });
@@ -218,15 +218,7 @@ describe("a server with tokens", () => {
     assert.match(cookie, /SameSite=Strict/);
     const home = await (await fetch(s.base, { headers: { cookie: cookie.split(";")[0]! } })).text();
     assert.match(home, /dakota \(admin\)/);
-    assert.match(home, /\/plugin configure honed@honed/);
-  });
-
-  test("does not tell a remote agent where the server keeps its files", async () => {
-    const client = await connect(s.base, agent);
-    const read = await call(client, "read_skill", { name: s.hub.list()[0]!.name });
-    assert.equal(read.isError, false);
-    assert.equal(read.value.folder, undefined);
-    await client.close();
+    assert.match(home, /Authorization: Bearer &lt;your token&gt;/);
   });
 });
 

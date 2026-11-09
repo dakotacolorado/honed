@@ -3,21 +3,9 @@ import { chmod, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { maturity } from "./domain.ts";
 import { ClaudeJudge, decisionJsonSchema, render, type Case } from "./judge.ts";
 
-const c: Case = {
-  skill: "x",
-  policy: "judge",
-  version: 0,
-  maturity: maturity(0, 0, 20_000),
-  failure: null,
-  files: [],
-  others: [],
-  proposals: [],
-  feedback: [],
-  precedent: [],
-};
+const c: Case = { skill: "x", version: 0, maxChars: 20_000, files: [], others: [], feedback: [], precedent: [], failure: null };
 
 test("the decision schema carries no $schema, which Claude Code refuses", () => {
   const schema = decisionJsonSchema();
@@ -25,14 +13,8 @@ test("the decision schema carries no $schema, which Claude Code refuses", () => 
   assert.equal(schema.type, "object");
 });
 
-test("a case for a skill that does not exist yet says so", () => {
-  assert.match(render(c), /the skill does not exist yet/);
-});
-
-test("a case gives the skill's stage and limits, and why the last attempt was refused", () => {
-  const text = render({ ...c, maturity: maturity(4, 9000, 20_000), failure: "over its cap" });
-  assert.match(text, /<maturity stage="settling" versions="4" characters="9000" cap="20000" next_version_at_most="11250"\/>/);
-  assert.match(text, /<your_last_attempt_was_refused>\nover its cap/);
+test("a case for a skill that does not exist yet says so, with the cap", () => {
+  assert.match(render(c), /<skill name="x" version="0" characters="0" cap="20000">\nnone: the skill does not exist yet/);
 });
 
 /** A stand-in for Claude Code that prints `output` and exits with `code`. */
@@ -45,10 +27,10 @@ async function fakeClaude(output: unknown, code = 0): Promise<{ path: string; do
 }
 
 test("reads the decision from Claude Code's structured output", async () => {
-  const decision = { reasoning: "r", outcome: "no_change", note: "", change: { write: [], remove: [] }, proposals: [] };
+  const decision = { reasoning: "r", changed: false, note: "", write: [], remove: [] };
   const claude = await fakeClaude({ is_error: false, structured_output: decision });
   try {
-    assert.deepEqual(await new ClaudeJudge({ command: claude.path }).rule(c), decision);
+    assert.deepEqual(await new ClaudeJudge({ command: claude.path }).decide(c), decision);
   } finally {
     await claude.done();
   }
@@ -57,7 +39,7 @@ test("reads the decision from Claude Code's structured output", async () => {
 test("a session that errs fails with what Claude Code said", async () => {
   const claude = await fakeClaude({ is_error: true, result: "usage limit reached" }, 1);
   try {
-    await assert.rejects(new ClaudeJudge({ command: claude.path }).rule(c), /usage limit reached/);
+    await assert.rejects(new ClaudeJudge({ command: claude.path }).decide(c), /usage limit reached/);
   } finally {
     await claude.done();
   }

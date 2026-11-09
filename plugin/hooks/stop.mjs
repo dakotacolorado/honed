@@ -1,10 +1,10 @@
-// Before a session stops, asks for feedback on each honed skill it read and has not rated. Asks once: a session
+// Before a session stops, asks for feedback on each honed skill it got and gave none on. Asks once: a session
 // already continuing because of a stop hook is let go, so it can never loop.
 import { readFileSync } from "node:fs";
 
-const TOOL = /^mcp__.*honed.*__(read_skill|give_feedback)$/;
+const TOOL = /^mcp__.*honed.*__(get_skill|submit_feedback)$/;
 
-/** The skills a transcript read with read_skill and has not given feedback on, in the order first read. */
+/** The skills a transcript got with get_skill and gave no feedback on, in the order first got. */
 export function unrated(transcript) {
   const read = [];
   const rated = new Set();
@@ -23,8 +23,8 @@ export function unrated(transcript) {
       const tool = TOOL.exec(block.name)?.[1];
       const name = block.input?.name;
       if (!tool || typeof name !== "string") continue;
-      if (tool === "read_skill" && !read.includes(name)) read.push(name);
-      if (tool === "give_feedback") rated.add(name);
+      if (tool === "get_skill" && !read.includes(name)) read.push(name);
+      if (tool === "submit_feedback") rated.add(name);
     }
   }
   return read.filter((name) => !rated.has(name));
@@ -41,7 +41,7 @@ if (!input.stop_hook_active && input.transcript_path) {
     console.log(
       JSON.stringify({
         decision: "block",
-        reason: `You read the honed skill${skills.length > 1 ? "s" : ""} ${skills.join(", ")} this session and gave no feedback. For each one you actually used, call give_feedback once (helped, hurt or missing) with what happened; that is how skills improve. Skip any you read but did not use, then finish.`,
+        reason: `You used the honed skill${skills.length > 1 ? "s" : ""} ${skills.join(", ")} this session and gave no feedback. For each one you actually followed, call submit_feedback once: what happened, and what should change. That is how skills improve. Skip any you looked at but did not use, then finish.`,
       }),
     );
   }

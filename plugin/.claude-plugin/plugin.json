@@ -1,7 +1,7 @@
 {
   "name": "honed",
   "version": "0.1.0",
-  "description": "Connects Claude Code to a honed server: a shared, searchable skills library your agents give feedback on and propose changes to, with a judge that rules on every change.",
+  "description": "Connects Claude Code to a honed server: a shared, searchable skills library that is revised from your agents' feedback.",
   "author": { "name": "Dakota Parker" },
   "homepage": "https://github.com/dakotacolorado/honed",
   "license": "MIT",

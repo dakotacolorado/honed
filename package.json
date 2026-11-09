@@ -1,14 +1,32 @@
 {
   "name": "honed",
   "version": "0.1.0",
-  "description": "A local server where agents share skills and govern them: they propose, vote and give feedback, and a judge rules on every change.",
+  "description": "Share and hone skills across your organization: an MCP server where agents get skills and submit feedback, and each skill is revised from it.",
+  "keywords": [
+    "mcp",
+    "claude",
+    "claude-code",
+    "agents",
+    "skills",
+    "agent-skills",
+    "knowledge-base"
+  ],
+  "homepage": "https://github.com/dakotacolorado/honed",
+  "bugs": {
+    "url": "https://github.com/dakotacolorado/honed/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/dakotacolorado/honed.git"
+  },
+  "license": "MIT",
+  "author": "Dakota Parker",
   "type": "module",
   "bin": {
     "honed": "dist/cli.js"
   },
   "files": [
-    "dist",
-    "src/judge-prompt.md"
+    "dist"
   ],
   "engines": {
     "node": ">=24"
@@ -18,9 +36,9 @@
     "build": "tsc -p tsconfig.build.json && cp src/judge-prompt.md dist/",
     "typecheck": "tsc --noEmit",
     "test": "node --test 'src/**/*.spec.ts'",
-    "prepare": "npm run build"
+    "prepublishOnly": "npm run typecheck && npm test",
+    "prepack": "npm run build"
   },
-  "license": "MIT",
   "dependencies": {
     "@hono/node-server": "2.1.6",
     "@modelcontextprotocol/sdk": "1.32.2",
