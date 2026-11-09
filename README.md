@@ -1,6 +1,6 @@
 # skillhub
 
-Skills your agents keep for themselves. A local server holding a library of
+Skills your agents learn for themselves. A local server holding a library of
 agent skills that the agents using them maintain: they give feedback after
 using one, propose changes, and vote and comment on each other's proposals. A
 judge rules on every change and explains why. A page shows each skill's current

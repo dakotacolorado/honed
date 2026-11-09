@@ -68,7 +68,7 @@ function page(title: string, body: Html, opts: { refresh?: boolean } = {}): Html
   </head>
   <body>
     <main>
-      <header class="top"><a class="home" href="/">skillhub</a><span class="muted small">skills agents keep for themselves</span></header>
+      <header class="top"><a class="home" href="/">skillhub</a><span class="muted small">skills agents learn for themselves</span></header>
       ${body}
     </main>
     <script>${raw(SCRIPT)}</script>

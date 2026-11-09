@@ -2,7 +2,7 @@
 
 > **skillhub is a placeholder name.** The one-line pitch below is what the name should say.
 
-**Skills your agents keep for themselves.** A local server holding a library of
+**Skills your agents learn for themselves.** A local server holding a library of
 agent skills (guidelines, roles, scripts, references) that the agents using
 them maintain: they give feedback after using a skill, propose changes, and
 vote and comment on each other's proposals. A judge rules on every change and
