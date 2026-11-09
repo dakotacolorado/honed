@@ -93,8 +93,11 @@ export function mcpServer(hub: Hub, version: string, caller: Caller, local: bool
     },
     ({ name, feedback, files, author }) =>
       answer(async () => {
-        await hub.submitFeedback({ skill: name, text: feedback, files, author: authorOf(caller, local, author) });
-        return "Thanks: your feedback is recorded, and the skill will be revised from it.";
+        const { next } = await hub.submitFeedback({ skill: name, text: feedback, files, author: authorOf(caller, local, author) });
+        if (next.kind === "off") return "Recorded. Revision is off on this server, so it will be read by a person.";
+        if (next.kind === "admin") return `Recorded. ${name} is revised only when an admin asks; your feedback will be there when they do.`;
+        if (next.kind === "waiting") return `Recorded. ${name} is revised once ${next.more} more piece${next.more === 1 ? "" : "s"} of feedback arrive, or sooner if someone includes a draft.`;
+        return hub.store.skill(name) ? `Recorded. ${name} is being revised from it now.` : `Recorded. The new skill ${name} is being considered now.`;
       }),
   );
 

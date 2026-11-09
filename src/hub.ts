@@ -42,6 +42,13 @@ export interface SearchResult extends SkillSummary {
   snippet: string;
 }
 
+/** What happens next to a piece of feedback, so the agent that sent it is told the truth. */
+export type Next =
+  | { kind: "revising" }
+  | { kind: "waiting"; more: number }
+  | { kind: "admin" }
+  | { kind: "off" };
+
 export interface HubOptions {
   /** The hard cap on a skill's text, all its files together. */
   maxChars?: number;
@@ -203,7 +210,7 @@ export class Hub {
   // Feedback
 
   /** Feedback on a skill, or on one that does not exist yet, which asks for it. A draft is checked against the cap now, so an agent hears at once. */
-  async submitFeedback(input: { skill: string; text: string; files?: DraftFile[]; author?: string }): Promise<Feedback> {
+  async submitFeedback(input: { skill: string; text: string; files?: DraftFile[]; author?: string }): Promise<{ feedback: Feedback; next: Next }> {
     const name = checkName(input.skill);
     const text = input.text.trim();
     if (!text) throw new Refusal("feedback needs text: what happened when you used the skill, and what should change");
@@ -224,7 +231,15 @@ export class Hub {
     };
     this.store.addFeedback(f);
     this.schedule(name);
-    return f;
+    return { feedback: f, next: this.next(name, draft.length > 0) };
+  }
+
+  private next(name: string, drafted: boolean): Next {
+    if (!this.judge) return { kind: "off" };
+    if (name === JUDGE_SKILL) return { kind: "admin" };
+    const waiting = this.store.waiting(name);
+    if (drafted || !this.store.skill(name) || waiting.some((f) => f.draft.length) || waiting.length >= FEEDBACK_BATCH) return { kind: "revising" };
+    return { kind: "waiting", more: FEEDBACK_BATCH - waiting.length };
   }
 
   // What a person does
@@ -239,6 +254,43 @@ export class Hub {
       j.reasoning = reason.trim() || `Reverted to version ${to}.`;
       j.version = await this.commit(name, files, `Revert to version ${to}`, j);
       this.finish(j, true, []);
+      return j;
+    });
+  }
+
+  /** A person's change to a skill's files, kept as a version like any other. */
+  edit(name: string, change: { write?: DraftFile[]; remove?: string[] }, reason: string, actor = "you"): Promise<Judgment> {
+    return this.exclusive(async () => {
+      this.skill(name);
+      const before = await this.current(name);
+      // A file edited in a text box keeps its executable bit unless told otherwise.
+      const writes = (change.write ?? []).map((w) => ({ ...w, executable: w.executable ?? before.find((f) => f.path === w.path)?.executable ?? false }));
+      const files = applyFiles(before, writes, change.remove ?? []);
+      checkSkill(name, files, this.maxChars);
+      const j = this.started(name, "person", actor);
+      const what = [...(change.write ?? []).map((f) => f.path), ...(change.remove ?? []).map((p) => `${p} removed`)].join(", ");
+      j.reasoning = reason.trim() || `Edited ${what}.`;
+      j.version = await this.commit(name, files, `Edited by hand: ${what}`, j);
+      this.finish(j, true, []);
+      return j;
+    });
+  }
+
+  /** Takes a skill out of the library and search. Its history stays in git and its feedback on record; waiting feedback is closed by the deletion, so it cannot bring the skill back. */
+  delete(name: string, reason: string, actor = "you"): Promise<Judgment> {
+    return this.exclusive(async () => {
+      if (name === JUDGE_SKILL) throw new Refusal(`${JUDGE_SKILL} is how honed revises every skill, so it cannot be deleted; revert or edit it instead`, 409);
+      const skill = this.skill(name);
+      const j = this.started(name, "person", actor);
+      j.reasoning = reason.trim() || `Deleted at version ${skill.version}.`;
+      await this.library.remove(name, `${name}: deleted\n\nJudgment: ${j.id}`);
+      this.store.transaction(() => {
+        this.store.deleteSkill(name);
+        this.store.unindex(name);
+      });
+      this.descriptions.delete(name);
+      this.sizes.delete(name);
+      this.finish(j, true, this.store.waiting(name).map((f) => f.id));
       return j;
     });
   }
@@ -260,7 +312,7 @@ export class Hub {
 
   private async commit(name: string, files: SkillFile[], note: string, j: Judgment): Promise<number> {
     const existing = this.store.skill(name);
-    const version = (existing?.version ?? 0) + 1;
+    const version = this.store.lastVersion(name) + 1;
     const commit = await this.library.commit(name, files, `${name} v${version}: ${note}\n\nJudgment: ${j.id}`);
     this.store.transaction(() => {
       this.store.putSkill({ name, version, createdAt: existing?.createdAt ?? now() });

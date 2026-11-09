@@ -94,6 +94,9 @@ button { font-size:13px; padding:8px 14px; border-radius:8px; border:1px solid v
 button:hover { background:var(--edge-soft); }
 button.primary { background:var(--edge); color:var(--bg); } button.primary:hover { filter:brightness(1.08); }
 .refusal { color:var(--rust); font-size:13px; width:100%; }
+button.danger { color:var(--rust); border-color:var(--rust); } button.danger:hover { background:var(--rust-soft); }
+form.act textarea { width:100%; min-height:240px; font:12.5px/1.5 var(--mono); padding:10px 12px; border:1px solid var(--line); border-radius:8px; background:var(--card); color:var(--fg); }
+form.act label { width:100%; font-size:13px; color:var(--muted); }
 .refusal:empty { display:none; }
 .quote { border-left:3px solid var(--edge); padding:2px 0 2px 12px; margin:0 0 8px; white-space:pre-wrap; }
 .by { font-family:var(--mono); font-size:12px; color:var(--muted); }
@@ -122,7 +125,7 @@ document.addEventListener("submit", async (ev) => {
   const button = form.querySelector("button"); if (button) button.disabled = true;
   const body = Object.fromEntries(new FormData(form));
   const res = await fetch(form.getAttribute("action"), { method: "POST", headers: { "content-type": "application/json", "${WRITE_HEADER}": "1" }, body: JSON.stringify(body) });
-  if (res.ok) { location.reload(); return; }
+  if (res.ok) { form.dataset.then ? location.assign(form.dataset.then) : location.reload(); return; }
   if (button) button.disabled = false;
   const err = await res.json().catch(() => ({ error: res.statusText }));
   if (out) out.textContent = err.error;
@@ -188,11 +191,11 @@ function diff(text: string): Html {
   return html`<pre class="diff">${lines}</pre>`;
 }
 
-function action(path: string, label: string, opts: { reason?: string; extra?: Html } = {}): Html {
-  return html`<form class="act" action="${path}">
+function action(path: string, label: string, opts: { reason?: string; extra?: Html; then?: string; danger?: boolean } = {}): Html {
+  return html`<form class="act" action="${path}" ${opts.then ? html`data-then="${opts.then}"` : ""}>
     ${opts.extra ?? ""}
     ${opts.reason !== undefined ? html`<input type="text" name="reason" placeholder="${opts.reason}" aria-label="${opts.reason}" />` : ""}
-    <button type="submit">${label}</button>
+    <button type="submit" class="${opts.danger ? "danger" : ""}">${label}</button>
     <div class="refusal" role="alert"></div>
   </form>`;
 }
@@ -202,7 +205,7 @@ const personName = (j: Judgment) => (j.actor && j.actor !== "you" ? j.actor : "Y
 function outcome(j: Judgment): Html {
   if (j.state === "running") return pill("honing", "running");
   if (j.state === "failed") return pill("failed", "failed");
-  if (j.by === "person") return pill(`reverted → v${j.version}`, "changed");
+  if (j.by === "person") return j.version ? pill(`changed by hand → v${j.version}`, "changed") : pill("deleted", "failed");
   if (j.by === "starter") return pill("shipped with honed");
   return j.changed ? pill(`honed → v${j.version}`, "changed") : pill("unchanged");
 }
@@ -295,7 +298,22 @@ async function skillPage(hub: Hub, name: string, viewer: Viewer, version: string
       ${admin && !judging && waiting ? action(`/api/skills/${name}/judge`, "Revise now") : ""}
 
       <h2>files</h2>
-      ${files.map((f) => html`<details ${f.path === SKILL_FILE ? "open" : ""}><summary class="mono small">${f.path}${f.executable ? " (executable)" : ""}</summary><pre>${f.content}</pre></details>`)}
+      ${files.map(
+        (f) => html`<details ${f.path === SKILL_FILE ? "open" : ""}><summary class="mono small">${f.path}${f.executable ? " (executable)" : ""}</summary><pre>${f.content}</pre>
+          ${admin
+            ? html`<details><summary class="small muted">edit ${f.path}</summary>${action(`/api/skills/${name}/edit`, "Save as a new version", {
+                reason: "What you changed, and why",
+                extra: html`<input type="hidden" name="path" value="${f.path}" /><textarea name="content" aria-label="${f.path}">${f.content}</textarea>`,
+              })}${f.path === SKILL_FILE ? "" : action(`/api/skills/${name}/edit`, `Remove ${f.path}`, { reason: "Why", danger: true, extra: html`<input type="hidden" name="remove" value="${f.path}" />` })}</details>`
+            : ""}
+        </details>`,
+      )}
+      ${admin
+        ? html`<details><summary class="small muted">add a file</summary>${action(`/api/skills/${name}/edit`, "Add it as a new version", {
+            reason: "What it is for",
+            extra: html`<input type="text" name="path" placeholder="scripts/check.sh" aria-label="Path" /><textarea name="content" aria-label="Content"></textarea>`,
+          })}</details>`
+        : ""}
 
       <h2>feedback</h2>
       ${feedback.length ? feedback.map(feedbackCard) : html`<div class="empty">No feedback yet. It arrives as agents use the skill.</div>`}
@@ -305,7 +323,7 @@ async function skillPage(hub: Hub, name: string, viewer: Viewer, version: string
         ${versions.map((v, i) => {
           const j = hub.store.judgment(v.judgment);
           const person = j?.by === "person";
-          const how = person ? `${personName(j!)} reverted it` : j?.by === "starter" ? "shipped with honed" : "honed";
+          const how = person ? `${personName(j!)} ${v.note.startsWith("Revert") ? "reverted" : "edited"} it` : j?.by === "starter" ? "shipped with honed" : "honed";
           return html`<div class="event ${person ? "person" : ""}">
             <div><b class="mono">v${v.version}</b> ${v.note} <span class="muted small">· ${how} ${ago(v.at)} · <a href="/judgments/${v.judgment}">why</a></span></div>
             <details><summary class="small muted">what changed</summary>${diff(diffs[i] ?? "")}</details>
@@ -314,7 +332,12 @@ async function skillPage(hub: Hub, name: string, viewer: Viewer, version: string
               : ""}
           </div>`;
         })}
-      </div>`,
+      </div>
+      ${admin && name !== JUDGE_SKILL
+        ? html`<h2>delete</h2><details><summary class="small muted">delete ${name}</summary>
+            <p class="small muted">Takes it out of the library and search. Its history stays in git, and feedback under its name can bring it back.</p>
+            ${action(`/api/skills/${name}/delete`, `Delete ${name}`, { reason: "Why (kept in the history)", danger: true, then: "/" })}</details>`
+        : ""}`,
     { refresh: judging, viewer, version },
   );
 }
@@ -327,7 +350,8 @@ async function judgmentPage(hub: Hub, id: string, viewer: Viewer, version: strin
   const heading =
     j.state === "running" ? `Honing ${j.skill}…` :
     j.state === "failed" ? `${j.skill} could not be revised` :
-    j.by === "person" ? `${personName(j)} reverted ${j.skill} → v${j.version}` :
+    j.by === "person" && !j.version ? `${personName(j)} deleted ${j.skill}` :
+    j.by === "person" ? `${personName(j)} changed ${j.skill} → v${j.version}` :
     j.by === "starter" ? `${j.skill} shipped with honed` :
     j.changed ? `${j.skill} honed → v${j.version}` : `${j.skill} left unchanged`;
   return page(
@@ -426,6 +450,14 @@ export function app(hub: Hub, version: string, opts: AppOptions = {}): Hono<Env>
     const b = await body(c);
     return c.json(await hub.revert(c.req.param("name"), Number(field(b, "version") || b.version), field(b, "reason"), c.get("viewer").caller.name));
   });
+  writes.post("/skills/:name/edit", async (c) => {
+    const b = await body(c);
+    const remove = field(b, "remove");
+    const change = remove ? { remove: [remove] } : { write: [{ path: field(b, "path").trim(), content: field(b, "content") }] };
+    if (!remove && !change.write![0]!.path) throw new Refusal("a file needs a path");
+    return c.json(await hub.edit(c.req.param("name"), change, field(b, "reason"), c.get("viewer").caller.name));
+  });
+  writes.post("/skills/:name/delete", async (c) => c.json(await hub.delete(c.req.param("name"), field(await body(c), "reason"), c.get("viewer").caller.name)));
   writes.post("/skills/:name/judge", (c) => (hub.judgeNow(c.req.param("name")), c.json({ revising: true })));
   web.route("/api", writes);
 

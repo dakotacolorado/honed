@@ -50,7 +50,7 @@ afterEach(async () => {
 
 describe("feedback", () => {
   test("under a new name with a draft makes the skill, as a commit, with the feedback marked considered", async () => {
-    const f = await hub.submitFeedback({ skill: "code-review", text: "Reviews kept missing tests.", files: draft("code-review"), author: "reviewer" });
+    const { feedback: f } = await hub.submitFeedback({ skill: "code-review", text: "Reviews kept missing tests.", files: draft("code-review"), author: "reviewer" });
     await hub.idle();
     assert.equal(hub.skill("code-review").version, 1);
     assert.equal(hub.list()[0]?.description, "When to use code-review.");
@@ -267,5 +267,68 @@ describe("starters", () => {
       await rm(fresh, { recursive: true, force: true });
       hub = await Hub.open(dir, judge, { starters: false });
     }
+  });
+});
+
+describe("the reviewer's fixes", () => {
+  test("search ignores filler words, so a question finds the skill it is about and not every skill", async () => {
+    hub.close();
+    const fresh = await mkdtemp(join(tmpdir(), "honed-search-"));
+    try {
+      hub = await Hub.open(fresh, null);
+      const names = hub.search("how do I write a commit message").map((h) => h.name);
+      assert.equal(names[0], "git-commits");
+      assert.ok(!names.includes("code-review"), names.join(", "));
+      assert.ok(!names.includes("honed-judge"), names.join(", "));
+      for (const h of hub.search("how do I write a commit message")) assert.doesNotMatch(h.snippet, /«(a|i|it|if|does|into)»/i);
+      assert.deepEqual(hub.search("how do I").map((h) => h.name).length > 0, true, "a query of only filler words still searches");
+    } finally {
+      hub.close();
+      await rm(fresh, { recursive: true, force: true });
+      hub = await Hub.open(dir, judge, { starters: false });
+    }
+  });
+
+  test("feedback says what will happen to it: revising, waiting for more, an admin, or nothing", async () => {
+    assert.deepEqual((await hub.submitFeedback({ skill: "x", text: "make it", files: draft("x") })).next, { kind: "revising" });
+    await hub.idle();
+    judge.decide_ = () => noChange;
+    assert.deepEqual((await hub.submitFeedback({ skill: "x", text: "a" })).next, { kind: "waiting", more: 2 });
+    assert.deepEqual((await hub.submitFeedback({ skill: "x", text: "b" })).next, { kind: "waiting", more: 1 });
+    assert.deepEqual((await hub.submitFeedback({ skill: "x", text: "c" })).next, { kind: "revising" });
+    assert.deepEqual((await hub.submitFeedback({ skill: "honed-judge", text: "stricter" })).next, { kind: "admin" });
+    await hub.idle();
+    hub.close();
+    hub = await Hub.open(dir, null, { starters: false });
+    assert.deepEqual((await hub.submitFeedback({ skill: "x", text: "d" })).next, { kind: "off" });
+  });
+
+  test("a person edits a skill's files as a new version, keeping a script's executable bit, within the cap", async () => {
+    await hub.submitFeedback({ skill: "x", text: "make it", files: [...draft("x"), { path: "run.sh", content: "#!/bin/sh\n", executable: true }] });
+    await hub.idle();
+    const j = await hub.edit("x", { write: [{ path: "run.sh", content: "#!/bin/sh\necho fixed\n" }] }, "Fix a typo.", "dakota");
+    assert.equal(j.actor, "dakota");
+    assert.equal(hub.skill("x").version, 2);
+    assert.deepEqual((await hub.current("x")).find((f) => f.path === "run.sh"), { path: "run.sh", content: "#!/bin/sh\necho fixed\n", executable: true });
+    await hub.edit("x", { remove: ["run.sh"] }, "");
+    assert.deepEqual((await hub.current("x")).map((f) => f.path), ["SKILL.md"]);
+    await assert.rejects(hub.edit("x", { remove: ["SKILL.md"] }, ""), /must have a SKILL\.md/);
+    await assert.rejects(hub.edit("x", { write: [{ path: "big.md", content: "y".repeat(20_001) }] }, ""), /over the cap/);
+  });
+
+  test("a person deletes a skill: gone from the library and search, history kept, waiting feedback closed, and a skill made again continues its versions", async () => {
+    await hub.submitFeedback({ skill: "typo-skil", text: "make it", files: draft("typo-skil", "unique-word") });
+    await hub.idle();
+    await hub.submitFeedback({ skill: "typo-skil", text: "waiting" });
+    const j = await hub.delete("typo-skil", "Misspelled.", "dakota");
+    assert.equal(j.version, null);
+    assert.equal(hub.store.skill("typo-skil"), undefined);
+    assert.deepEqual(hub.search("unique-word"), []);
+    assert.equal(hub.store.waiting("typo-skil").length, 0);
+    assert.equal(hub.store.versions("typo-skil").length, 1);
+    await assert.rejects(hub.delete("honed-judge", ""), /cannot be deleted|no skill/);
+    await hub.submitFeedback({ skill: "typo-skil", text: "again", files: draft("typo-skil") });
+    await hub.idle();
+    assert.equal(hub.skill("typo-skil").version, 2);
   });
 });

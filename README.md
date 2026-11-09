@@ -59,8 +59,9 @@ honed --host 0.0.0.0
 claude mcp add --transport http --scope user honed https://honed.example.com/mcp --header "Authorization: Bearer <token>"
 ```
 
-People sign in to the page with their token; only an admin token can revert a skill. With no tokens, honed answers
-only its own machine and needs none.
+People sign in to the page with their token; only an admin can edit, revert or delete a skill. With no tokens, honed
+answers only its own machine and needs none. **The first token switches honed to token-required at once, even while
+it is running**: agents connected without one get 401s until they send it.
 
 **For Claude Code**, the plugin connects it too, and also asks each session for feedback on the skills it used:
 

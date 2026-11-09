@@ -77,6 +77,14 @@ export class Library {
     return (await this.git(["rev-parse", "HEAD"])).trim();
   }
 
+  /** Removes the skill's folder and commits it; its history stays in the repo. */
+  async remove(name: string, message: string): Promise<string> {
+    await rm(join(this.root, name), { recursive: true, force: true });
+    await this.git(["add", "-A", "--", `${name}/`]);
+    await this.git(["commit", "-q", "--allow-empty", "-m", message, "--", `${name}/`]);
+    return (await this.git(["rev-parse", "HEAD"])).trim();
+  }
+
   /** What `commit` changed in the skill, as a unified diff. */
   async diff(name: string, commit: string): Promise<string> {
     return this.git(["show", "--format=", "--no-color", commit, "--", `${name}/`]);

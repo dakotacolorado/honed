@@ -75,8 +75,14 @@ if (command === "token") {
   const store = new Store(join(dir, "honed.db"));
   try {
     if (sub === "create" && name) {
+      const first = store.tokens().length === 0;
       const token = createToken(store, name, values.admin ?? false);
       console.log(`${token}\n\nThe token for ${name}${values.admin ? " (admin)" : ""}. It is shown this once; honed keeps only its hash.`);
+      if (first) {
+        console.log(`\n${c.edge("!")} This is honed's first token, so it now asks every request for one, starting immediately, even on a server already running.
+  Agents connected without a token will get 401s until they send one:
+  claude mcp add --transport http --scope user honed <url>/mcp --header "Authorization: Bearer ${token}"`);
+      }
     } else if (sub === "list") {
       const tokens = store.tokens();
       console.log(tokens.length ? tokens.map((t) => `${t.name}${t.admin ? " (admin)" : ""}  made ${t.createdAt}`).join("\n") : "No tokens: honed answers only this machine.");

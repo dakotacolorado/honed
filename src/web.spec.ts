@@ -213,6 +213,20 @@ describe("a server with tokens", () => {
     assert.equal(((await asAdmin.json()) as { actor: string }).actor, "dakota");
   });
 
+  test("lets only an admin edit or delete a skill, and tells an agent what happens to its feedback", async () => {
+    const asAgent = await fetch(`${s.base}/api/skills/x/edit`, { method: "POST", headers: { ...WRITE, authorization: `Bearer ${agent}` }, body: JSON.stringify({ path: "SKILL.md", content: "---\nname: x\ndescription: e\n---\n" }) });
+    assert.equal(asAgent.status, 403);
+    const edited = await fetch(`${s.base}/api/skills/x/edit`, { method: "POST", headers: { ...WRITE, authorization: `Bearer ${admin}` }, body: JSON.stringify({ path: "SKILL.md", content: "---\nname: x\ndescription: edited\n---\n", reason: "typo" }) });
+    assert.equal(edited.status, 200);
+    assert.equal(s.hub.list().find((k) => k.name === "x")?.description, "edited");
+    const client = await connect(s.base, agent);
+    assert.match((await call(client, "submit_feedback", { name: "x", feedback: "fine" })).value, /revised once 2 more pieces of feedback arrive/);
+    await client.close();
+    const deleted = await fetch(`${s.base}/api/skills/x/delete`, { method: "POST", headers: { ...WRITE, authorization: `Bearer ${admin}` }, body: JSON.stringify({ reason: "done" }) });
+    assert.equal(deleted.status, 200);
+    assert.equal((await fetch(`${s.base}/api/skills/x`, { headers: { authorization: `Bearer ${admin}` } })).status, 404);
+  });
+
   test("signs a person in with a token, into a cookie the page then uses", async () => {
     const bad = await fetch(`${s.base}/login`, { method: "POST", body: new URLSearchParams({ token: "honed_nope" }), redirect: "manual" });
     assert.equal(bad.status, 401);

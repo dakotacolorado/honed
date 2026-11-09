@@ -33,6 +33,20 @@ export interface Hit {
   snippet: string;
 }
 
+/** Words that say nothing about what a skill is for: matched, they make every skill a hit. */
+const STOPWORDS = new Set(
+  "a an and are as at be been but by can could did do does doing for from had has have how i i'm if in into is it its me my of on onto or our should so than that the their them then there these they this those to too use used using want was we were what when where which who why will with would you your".split(" "),
+);
+
+/** The FTS query for what someone typed: filler words dropped, short words matched whole, longer ones as prefixes, any of them. */
+export function matchQuery(query: string): string | null {
+  const words = (query.toLowerCase().match(/[\p{L}\p{N}_']+/gu) ?? []).map((w) => w.replace(/'/g, "")).filter(Boolean);
+  const meaningful = words.filter((w) => !STOPWORDS.has(w));
+  const terms = [...new Set(meaningful.length ? meaningful : words)];
+  if (terms.length === 0) return null;
+  return terms.map((t) => (t.length >= 4 ? `"${t}"*` : `"${t}"`)).join(" OR ");
+}
+
 type Row = Record<string, unknown>;
 type Param = string | number | null;
 const s = (v: unknown) => v as string;
@@ -228,12 +242,22 @@ export class Store {
   }
   /** Skills matching any word of `query`, best first, with where each matched. */
   search(query: string, limit: number): Hit[] {
-    const terms = query.match(/[\p{L}\p{N}_]+/gu) ?? [];
-    if (terms.length === 0) return [];
+    const match = matchQuery(query);
+    if (!match) return [];
     return this.all(
       "SELECT name, snippet(search, 2, '«', '»', '…', 12) AS snippet FROM search WHERE search MATCH ? ORDER BY bm25(search, 10.0, 5.0, 1.0) LIMIT ?",
-      terms.map((t) => `"${t}"*`).join(" OR "),
+      match,
       limit,
     ).map((r) => ({ name: s(r.name), snippet: s(r.snippet) }));
+  }
+  unindex(name: string): void {
+    this.run("DELETE FROM search WHERE name = ?", name);
+  }
+  deleteSkill(name: string): void {
+    this.run("DELETE FROM skills WHERE name = ?", name);
+  }
+  /** The highest version a skill has ever had, deleted or not, so a skill made again under its name continues its history. */
+  lastVersion(name: string): number {
+    return n(this.get("SELECT COALESCE(MAX(version), 0) AS v FROM versions WHERE skill = ?", name)?.v);
   }
 }
