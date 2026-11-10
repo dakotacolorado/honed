@@ -9,8 +9,35 @@ const LETTERS = [
   "╚═╝  ╚═╝ ╚═════╝ ╚═╝  ╚═══╝╚══════╝╚═════╝",
 ];
 
-/** A pixel sword beside the letters, point up and to the right, drawn at two pixels a character with half blocks. */
-const SWORD = ["           ▄█", "         ▄██▀", "       ▄██▀", "  █▄ ▄██▀", "   ▄██▀▄", " ██▀    ▀"];
+/** A pixel sword, point up and to the right: blade, crossguard, grip and pommel, on a 12 by 12 grid, its point symmetric on both edges. */
+export const SWORD_PIXELS = [
+  "..........##",
+  ".........###",
+  "........###.",
+  ".......###..",
+  "......###...",
+  "..#..###....",
+  "...####.....",
+  "...###......",
+  "..##.##.....",
+  ".##...#.....",
+  "##..........",
+  "#...........",
+];
+
+/** The sword as text, two pixels a character, for terminals; the page draws SWORD_PIXELS as an image instead. */
+const SWORD = Array.from({ length: SWORD_PIXELS.length / 2 }, (_, row) =>
+  [...SWORD_PIXELS[row * 2]!]
+    .map((top, col) => {
+      const t = top === "#", b = SWORD_PIXELS[row * 2 + 1]![col] === "#";
+      return t && b ? "█" : t ? "▀" : b ? "▄" : " ";
+    })
+    .join("")
+    .trimEnd(),
+);
+
+/** The letters alone, for the page, which sets the sword beside them as an image. */
+export const LETTERS_ONLY = LETTERS.join("\n");
 
 export const WORDMARK = LETTERS.map((line, i) => `${line.padEnd(43)}  ${SWORD[i]}`.trimEnd()).join("\n");
 

@@ -4,7 +4,7 @@ import { deleteCookie, getCookie, setCookie } from "hono/cookie";
 import { html, raw } from "hono/html";
 import type { HtmlEscapedString } from "hono/utils/html";
 import { callerOf } from "./auth.ts";
-import { DEFAULT_URL, SUMMARY, TAGLINE, WORDMARK } from "./banner.ts";
+import { DEFAULT_URL, LETTERS_ONLY, SUMMARY, SWORD_PIXELS, TAGLINE } from "./banner.ts";
 import { baseName, HONER_SKILL, LOCAL_CALLER, NAME_ROUTE, prefixOf, Refusal, SKILL_FILE, type Caller, type Feedback, type Judgment } from "./domain.ts";
 import { parseDiff } from "./diffview.ts";
 import { renderMarkdown, withoutFrontmatter } from "./markdown.ts";
@@ -49,11 +49,11 @@ main { max-width:920px; margin:0 auto; padding:20px 16px 72px; }
 a { color:var(--edge); text-decoration:none; } a:hover { text-decoration:underline; }
 :focus-visible { outline:2px solid var(--edge); outline-offset:2px; border-radius:4px; }
 .mono, code, pre, h1, h2, .name, .pill, button, .brand, .tabs a, .tag { font-family:var(--mono); }
-a.wordmark { display:block; width:fit-content; color:var(--edge); line-height:1; margin:8px 0 14px; }
+a.wordmark { display:flex; align-items:flex-end; gap:1.4em; width:fit-content; color:var(--edge); line-height:1; margin:8px 0 14px; font-size:clamp(7px, 2.2vw, 13px); }
 a.wordmark:hover { text-decoration:none; opacity:.85; }
-a.wordmark pre { margin:0; padding:0; background:none; border:0; overflow:visible; white-space:pre; font-size:clamp(7px, 2.2vw, 13px); line-height:1; }
-a.wordmark.small { margin:0 0 18px; }
-a.wordmark.small pre { font-size:clamp(4px, 1vw, 6px); }
+a.wordmark pre { margin:0; padding:0; background:none; border:0; overflow:visible; white-space:pre; font-size:1em; line-height:1; }
+a.wordmark svg { height:6em; width:auto; flex:none; }
+a.wordmark.small { margin:0 0 18px; font-size:clamp(4px, 1vw, 6px); }
 h1 { font-size:22px; margin:0 0 6px; letter-spacing:-.01em; }
 h2 { font-size:14px; margin:36px 0 10px; color:var(--muted); font-weight:600; text-transform:lowercase; }
 .muted { color:var(--muted); } .small { font-size:13px; }
@@ -195,7 +195,7 @@ function page(title: string, body: Html, opts: { refresh?: boolean; viewer?: Vie
   </head>
   <body>
     <main>
-      <a class="wordmark ${opts.home ? "" : "small"}" href="/" aria-label="honed, all skills"><pre aria-hidden="true">${WORDMARK}</pre></a>
+      <a class="wordmark ${opts.home ? "" : "small"}" href="/" aria-label="honed, all skills"><pre aria-hidden="true">${LETTERS_ONLY}</pre>${SWORD_SVG}</a>
       ${body}
       <footer>🗡 honed${opts.version ? ` v${opts.version}` : ""}${who}${opts.footer ?? ""}</footer>
     </main>
@@ -203,6 +203,13 @@ function page(title: string, body: Html, opts: { refresh?: boolean; viewer?: Vie
   </body>
 </html>`;
 }
+
+/** The sword beside the wordmark, drawn from its pixel grid: square pixels, crisp edges, in the page's accent color. */
+const SWORD_SVG = raw(
+  `<svg aria-hidden="true" viewBox="0 0 ${SWORD_PIXELS[0]!.length} ${SWORD_PIXELS.length}" shape-rendering="crispEdges" fill="currentColor">${SWORD_PIXELS.flatMap((row, y) =>
+    [...row].flatMap((p, x) => (p === "#" ? [`<rect x="${x}" y="${y}" width="1" height="1"/>`] : [])),
+  ).join("")}</svg>`,
+);
 
 /** "3h ago", with the exact time on hover. */
 function ago(iso: string | null): Html {
