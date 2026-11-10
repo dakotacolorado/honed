@@ -125,7 +125,7 @@ try {
   fail(e instanceof Error ? e.message : String(e));
 }
 const judge = reviser!.judge;
-const log = (line: string) => console.log(`${c.dim(new Date().toTimeString().slice(0, 8))} ${c.edge("✦")} ${line}`);
+const log = (line: string) => console.log(`${c.dim(new Date().toTimeString().slice(0, 8))} ${c.edge("🗡")} ${line}`);
 
 const hub = await Hub.open(dir, judge, { log, maxChars });
 if (shared && hub.store.tokens().length === 0) {

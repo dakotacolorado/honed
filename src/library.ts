@@ -106,7 +106,11 @@ export class Library {
       const { stdout } = await run("git", ["diff", "--no-index", "--no-color", "a", "b"], { cwd: tmp, encoding: "utf8" }).catch(
         (e: { stdout?: string }) => ({ stdout: e.stdout ?? "" }),
       );
-      return stdout;
+      // The two sides are folders a/ and b/ here, so git names files a/a/x and b/b/x; name them as a skill's own diff does.
+      return stdout
+        .split("\n")
+        .map((line) => (/^(diff --git |--- |\+\+\+ )/.test(line) ? line.replace(/(^|\s|^diff --git )([ab])\/[ab]\//g, "$1$2/") : line))
+        .join("\n");
     } finally {
       await rm(tmp, { recursive: true, force: true });
     }

@@ -36,6 +36,8 @@ export interface SkillSummary {
   chars: number;
   /** Feedback on the current version. */
   feedback: number;
+  /** Feedback no revision has considered yet. */
+  waiting: number;
   updatedAt: string;
 }
 
@@ -173,6 +175,7 @@ export class Hub {
       version: s.version,
       chars: this.sizes.get(s.name) ?? 0,
       feedback: this.store.feedbackCount(s.name, s.version),
+      waiting: this.store.waiting(s.name).length,
       updatedAt: this.store.version(s.name, s.version)?.at ?? s.createdAt,
     };
   }
@@ -272,6 +275,16 @@ export class Hub {
       this.finish(j, true, []);
       return j;
     });
+  }
+
+  /** What a person's change would do to a skill, as a diff, refused as `edit` would refuse it. Changes nothing. */
+  async preview(name: string, change: { write?: DraftFile[]; remove?: string[] }): Promise<string> {
+    this.skill(name);
+    const before = await this.current(name);
+    const writes = (change.write ?? []).map((w) => ({ ...w, executable: w.executable ?? before.find((f) => f.path === w.path)?.executable ?? false }));
+    const after = applyFiles(before, writes, change.remove ?? []);
+    checkSkill(name, after, this.maxChars);
+    return this.library.compare(before, after);
   }
 
   /** A person's change to a skill's files, kept as a version like any other. */

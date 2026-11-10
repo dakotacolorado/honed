@@ -128,16 +128,26 @@ describe("a local server, with no tokens", () => {
   test("shows the skills, a search, a skill with its feedback and history, and why it changed", async () => {
     const home = await (await fetch(s.base)).text();
     assert.match(home, /<title>honed<\/title>/);
-    assert.match(home, /\|_\| \|_\|\\___\/\|_\| \|_\|/);
+    assert.ok(home.includes(encodeURIComponent("🗡️")), "the sword is the tab's icon");
+    assert.doesNotMatch(home, /class="wordmark"/, "once an agent has connected, the hero steps aside");
     assert.match(home, /release-notes/);
+    assert.match(home, /connect an agent/);
     assert.match(home, /claude mcp add --transport http --scope user honed http:\/\/127\.0\.0\.1:\d+\/mcp</);
+    assert.doesNotMatch(home, /class="bar"/, "no size bar");
     assert.match(await (await fetch(`${s.base}/?q=grouping`)).text(), /release-notes/);
     assert.match(await (await fetch(`${s.base}/?q=zebra`)).text(), /No skill mentions that/);
     const body = await (await fetch(`${s.base}/skills/release-notes`)).text();
-    assert.match(body, /Group by user-facing change\./);
-    assert.match(body, /Saved me the grouping\./);
-    assert.match(body, /with a draft: SKILL\.md, scripts\/prs\.sh/);
+    assert.match(body, /<p>Group by user-facing change\.<\/p>/, "SKILL.md is rendered");
+    assert.doesNotMatch(body, /name: release-notes/, "its frontmatter is the header, not the body");
     assert.match(body, /<title>release-notes · honed<\/title>/);
+    assert.match(body, /aria-current="page">skill</);
+    assert.match(await (await fetch(`${s.base}/skills/release-notes?raw=1`)).text(), /name: release-notes/);
+    const feedbackTab = await (await fetch(`${s.base}/skills/release-notes?tab=feedback`)).text();
+    assert.match(feedbackTab, /Saved me the grouping\./);
+    assert.match(feedbackTab, /with a draft: SKILL\.md, scripts\/prs\.sh/);
+    const history = await (await fetch(`${s.base}/skills/release-notes?tab=history`)).text();
+    assert.match(history, /created SKILL\.md/);
+    assert.doesNotMatch(history, /diff --git|index [0-9a-f]+\.\./, "none of git's bookkeeping");
     const [v] = s.hub.store.versions("release-notes");
     const why = await (await fetch(`${s.base}/judgments/${v!.judgment}`)).text();
     assert.match(why, /Supported by the report\./);
@@ -146,7 +156,7 @@ describe("a local server, with no tokens", () => {
 
   test("escapes what agents wrote, and highlights a search match without trusting it", async () => {
     await s.hub.submitFeedback({ skill: "release-notes", text: "<script>alert(1)</script>" });
-    const body = await (await fetch(`${s.base}/skills/release-notes`)).text();
+    const body = await (await fetch(`${s.base}/skills/release-notes?tab=feedback`)).text();
     assert.doesNotMatch(body, /<script>alert/);
     assert.match(body, /&lt;script&gt;alert/);
     const found = await (await fetch(`${s.base}/?q=grouping`)).text();
@@ -224,9 +234,28 @@ describe("a server with tokens", () => {
     assert.equal((await fetch(`${s.base}/api/skills/team/deploys`, { headers: auth })).status, 200);
     const page = await (await fetch(`${s.base}/skills/team/deploys`, { headers: auth })).text();
     assert.match(page, /<title>team\/deploys · honed<\/title>/);
-    assert.match(await (await fetch(s.base, { headers: auth })).text(), /<h3 class="group">team\/<\/h3>/);
+    const home = await (await fetch(s.base, { headers: auth })).text();
+    assert.match(home, /href="\/\?group=team"/);
+    assert.match(home, /<div class="tag">team\/<\/div>\s*<div class="name">deploys<\/div>/);
+    const filtered = await (await fetch(`${s.base}/?group=team`, { headers: auth })).text();
+    assert.match(filtered, /aria-current="true">team\//);
+    assert.doesNotMatch(filtered, /<div class="name">x<\/div>/);
     const edited = await fetch(`${s.base}/api/skills/team/deploys/edit`, { method: "POST", headers: { ...WRITE, ...auth }, body: JSON.stringify({ path: "SKILL.md", content: "---\nname: deploys\ndescription: Deploying, edited.\n---\n" }) });
     assert.equal(edited.status, 200);
+  });
+
+  test("previews an edit as a diff, refused as the edit would be, without changing anything", async () => {
+    const auth = { authorization: `Bearer ${admin}` };
+    const before = s.hub.skill("team/deploys").version;
+    const ok = await fetch(`${s.base}/api/skills/team/deploys/preview`, { method: "POST", headers: { ...WRITE, ...auth }, body: JSON.stringify({ path: "notes.md", content: "Roll back first." }) });
+    assert.equal(ok.status, 200);
+    assert.match(((await ok.json()) as { html: string }).html, /created notes\.md[\s\S]*Roll back first\./);
+    const bad = await fetch(`${s.base}/api/skills/team/deploys/preview`, { method: "POST", headers: { ...WRITE, ...auth }, body: JSON.stringify({ path: "SKILL.md", content: "no frontmatter" }) });
+    assert.equal(bad.status, 400);
+    assert.equal(s.hub.skill("team/deploys").version, before);
+    const editing = await (await fetch(`${s.base}/skills/team/deploys?edit=SKILL.md`, { headers: auth })).text();
+    assert.match(editing, /data-preview="\/api\/skills\/team\/deploys\/preview"/);
+    assert.match(editing, /<button type="submit" class="primary" hidden>/, "save waits for a preview");
   });
 
   test("lets only an admin edit or delete a skill, and tells an agent what happens to its feedback", async () => {
