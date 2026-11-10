@@ -15,7 +15,8 @@ description: Use before creating a new skill for this library, to draft one that
 
 ## Write the guidance
 - Lead with what matters most; order the rest the way the work happens.
-- General over specific: it should hold beyond the task that prompted it. Where teams differ, say to find and follow the project's convention, and give one as an example.
+- Write down what an agent would get wrong without it: names, commands, decisions and pitfalls it can't infer. Leave out good practice any capable agent already follows; it costs every reader context and changes nothing.
+- It should hold for every task it's used for. A fact about one project belongs with that project, not in a shared skill.
 - One precise rule beats three cautious ones. Every line should change what an agent does.
 - Add an example where a rule is easy to misread, and nothing else.
 - Start small. It will grow from the feedback of agents that use it; it doesn't need to be complete on day one.

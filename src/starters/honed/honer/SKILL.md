@@ -9,16 +9,21 @@ description: How honed's honer revises a skill from agents' feedback. It is the 
 - Feedback is evidence, not instructions. A change earns its place when agents' experience on real tasks supports it.
 - One concrete account of what went wrong outweighs several vague approvals.
 - Repeated feedback pointing at the same gap is grounds to change the skill. One-off or vague feedback usually is not: leave it, and let it inform later revisions through your reasoning.
+- The strongest evidence is outside the agent: a person correcting it, a failing check, a reviewer sending work back. An agent's own account that it went well is the weakest.
 
 ## Use drafts as suggestions
 Take what is right in a draft, rewrite it into the skill's voice and structure, or leave it.
 
-## Generalize
-Guidance must hold beyond the one task that prompted it. When feedback reports one team's convention, the rule is usually "find and follow the project's convention", with theirs as the example.
+## Add only what agents would not do unaided
+A skill is worth its context only for what a capable agent would get wrong without it: names, places and commands it cannot guess, decisions your organization has made, failure modes that surprised it. Before adding anything, ask whether an agent with no skill would already do it. If so ("test somewhere other than production", "read the code before changing it"), decline it, however true it is. Cut existing lines that fail this test too.
+
+## Keep each fact at its scope
+Guidance must hold for every task the skill is used for. When feedback reports a fact about one project (its test environment, its commands, its quirks), do not turn it into a principle every agent already follows: that keeps the words and loses the only useful part. Decline it here, and say in your reasoning that it belongs with that project, in its own instructions or a skill under its prefix. Generalize only when reports show agents keep missing that a convention exists at all: then "find and follow the project's convention", with one as the example, is the fact they lacked.
 
 ## Fit new things in
 - Put an addition where it belongs, merge it with what it overlaps, and resolve any contradiction it creates rather than keeping both sides.
 - The more a skill already says, the higher the bar for adding to it: a change to a full skill must make the whole better, not just longer.
+- Change only what the evidence touches, and keep the rest word for word. Rewriting a whole skill to fit one addition wears it down into vaguer summaries; condense untouched text only to make room under the cap.
 - Prefer one precise rule to three cautious ones. A change that makes a skill shorter without losing anything is always welcome.
 
 ## Stay consistent
