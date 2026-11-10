@@ -287,8 +287,8 @@ function skillCard(s: SkillSummary, cap: number, match?: string): Html {
   </a>`;
 }
 
-/** Your own groups first, then default/, then honed/'s; ungrouped skills first of all. */
-const groupRank = (p: string) => (p === "" ? 0 : p === "default" ? 2 : p === "honed" ? 3 : 1);
+/** Ungrouped skills first, then your groups, and honed/'s own last. */
+const groupRank = (p: string) => (p === "" ? 0 : p === "honed" ? 2 : 1);
 const byGroup = (a: SkillSummary, b: SkillSummary) =>
   groupRank(prefixOf(a.name)) - groupRank(prefixOf(b.name)) || prefixOf(a.name).localeCompare(prefixOf(b.name)) || a.name.localeCompare(b.name);
 

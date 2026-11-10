@@ -227,15 +227,15 @@ describe("starters", () => {
     const fresh = await mkdtemp(join(tmpdir(), "honed-starters-"));
     try {
       hub = await Hub.open(fresh, judge);
-      assert.deepEqual(hub.list().map((s) => s.name), ["default/code-review", "default/git-commits", "default/ux-review", "honed/honer", "honed/skill-writing"]);
-      const [v] = hub.store.versions("default/git-commits");
+      assert.deepEqual(hub.list().map((s) => s.name), ["honed/honer", "honed/skill-writing", "team/code-review", "team/git-commits", "team/ux-review"]);
+      const [v] = hub.store.versions("team/git-commits");
       assert.equal(v?.note, "Shipped with honed");
       assert.equal(hub.judgment(v!.judgment).by, "starter");
       assert.match(await hub.guidance(), /^# Revising a skill from feedback/);
       hub.close();
       hub = await Hub.open(fresh, judge);
       assert.equal(hub.list().length, 5);
-      assert.equal(hub.skill("default/git-commits").version, 1);
+      assert.equal(hub.skill("team/git-commits").version, 1);
     } finally {
       await hub.idle();
       hub.close();
@@ -293,8 +293,8 @@ describe("the reviewer's fixes", () => {
     try {
       hub = await Hub.open(fresh, null);
       const names = hub.search("how do I write a commit message").map((h) => h.name);
-      assert.equal(names[0], "default/git-commits");
-      assert.ok(!names.includes("default/code-review"), names.join(", "));
+      assert.equal(names[0], "team/git-commits");
+      assert.ok(!names.includes("team/code-review"), names.join(", "));
       for (const h of hub.search("how do I write a commit message")) assert.doesNotMatch(h.snippet, /«(a|i|it|if|does|into)»/i);
       assert.deepEqual(hub.search("how do I").map((h) => h.name).length > 0, true, "a query of only filler words still searches");
     } finally {

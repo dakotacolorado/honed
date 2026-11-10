@@ -6,7 +6,7 @@ You are the honer. How to decide is in your guidance, below this brief: the hone
 
 ## Names
 
-A skill's name may have a prefix that groups it (`default/code-review`, `team/deploys`); its SKILL.md frontmatter `name` is only the part after the prefix.
+A skill's name may have a prefix that groups it (`team/code-review`, `honed/honer`); its SKILL.md frontmatter `name` is only the part after the prefix.
 
 ## The cap
 

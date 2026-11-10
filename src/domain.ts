@@ -101,7 +101,7 @@ const NAME = new RegExp(`^(?:${PART}/)?${PART}$`);
 /** A skill name in a URL path: an optional prefix, then the name. */
 export const NAME_ROUTE = `{${PART}(?:/${PART})?}`;
 
-/** A skill's name is its own, optionally under one prefix that groups it: `git-commits`, `default/git-commits`. */
+/** A skill's name is its own, optionally under one prefix that groups it: `git-commits`, `team/git-commits`. */
 export function checkName(name: string): string {
   if (!NAME.test(name) || name.split("/").some((p) => p.length > 64)) {
     throw new Refusal(`"${name}" must be lowercase letters, digits and single hyphens, optionally under one prefix like team/, at most 64 characters a part`);

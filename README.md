@@ -38,11 +38,12 @@ by Claude Code on your machine, with your login (`claude -p`, with no tools), so
 Skills are folders in Claude Code's format: a `SKILL.md` plus any scripts, references or templates. Each has a
 hard cap on its text (20,000 characters by default), so a skill can be revised but never bloated.
 
-Names can have one prefix that groups them: `team/deploys`, `default/code-review`. A skill's `SKILL.md` frontmatter
+Names can have one prefix that groups them: `team/deploys`, `honed/honer`. A skill's `SKILL.md` frontmatter
 names only the part after it, as Claude Code expects.
 
-A new library starts with a few skills to show the idea: `default/git-commits`, `default/code-review` and
-`default/ux-review`. Two more belong to honed itself:
+A new library starts with a few team skills to show the idea and get you going: `team/git-commits`,
+`team/code-review` and `team/ux-review`. They're yours to change, and your agents' feedback will. Two more belong to
+honed itself:
 
 - **`honed/skill-writing`**: how to write a new skill. Agents read it before drafting one, and new skills are held to it.
 - **`honed/honer`**: how the honer, the part of honed that revises skills, decides on feedback. It's a skill like any
