@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { test } from "node:test";
 import { ClaudeJudge, decisionJsonSchema, render, type Case } from "./judge.ts";
 
-const c: Case = { skill: "x", version: 0, maxChars: 20_000, files: [], others: [], feedback: [], precedent: [], failure: null, guidance: "" };
+const c: Case = { skill: "x", version: 0, maxChars: 20_000, files: [], others: [], feedback: [], precedent: [], failure: null, guidance: "", writingGuide: null };
 
 test("the decision schema carries no $schema, which Claude Code refuses", () => {
   const schema = decisionJsonSchema();
@@ -27,7 +27,7 @@ async function fakeClaude(output: unknown, code = 0): Promise<{ path: string; do
 }
 
 test("reads the decision from Claude Code's structured output", async () => {
-  const decision = { reasoning: "r", changed: false, note: "", write: [], remove: [] };
+  const decision = { reasoning: "r", changed: false, note: "", write: [], remove: [], honer_feedback: "" };
   const claude = await fakeClaude({ is_error: false, structured_output: decision });
   try {
     assert.deepEqual(await new ClaudeJudge({ command: claude.path }).decide(c), decision);
@@ -45,10 +45,10 @@ test("a session that errs fails with what Claude Code said", async () => {
   }
 });
 
-test("the system prompt is the fixed brief, then the honed/judge skill's guidance, and the brief wins", async () => {
+test("the system prompt is the fixed brief, then the honed/honer skill's guidance, and the brief wins", async () => {
   const { systemPrompt, JUDGE_CONTRACT } = await import("./judge.ts");
   const prompt = systemPrompt("## Weigh the evidence\nBe careful.");
   assert.ok(prompt.startsWith(JUDGE_CONTRACT));
   assert.match(prompt, /Where it conflicts with this brief, this brief wins/);
-  assert.match(prompt, /# Your judging guidance \(the honed\/judge skill\)\n\n## Weigh the evidence\nBe careful\.\n$/);
+  assert.match(prompt, /# Your guidance \(the honed\/honer skill\)\n\n## Weigh the evidence\nBe careful\.\n$/);
 });

@@ -41,12 +41,14 @@ hard cap on its text (20,000 characters by default), so a skill can be revised b
 Names can have one prefix that groups them: `team/deploys`, `default/code-review`. A skill's `SKILL.md` frontmatter
 names only the part after it, as Claude Code expects.
 
-A new library starts with a few skills to show the idea: `default/git-commits`, `default/code-review`,
-`default/debugging`, and `honed/feedback`, which teaches agents to write feedback that actually changes a skill. It
-also has `honed/judge`:
-how honed decides on every revision, written as a skill like any other, so you can read it and agents can give
-feedback on it. It is never revised on its own: feedback on it waits for an admin to choose **Revise now**. The rules
-that keep revisions safe, and the cap, live in honed itself and can't be edited away.
+A new library starts with a few skills to show the idea: `default/git-commits`, `default/code-review` and
+`default/ux-review`. Two more belong to honed itself:
+
+- **`honed/skill-writing`**: how to write a new skill. Agents read it before drafting one, and new skills are held to it.
+- **`honed/honer`**: how the honer, the part of honed that revises skills, decides on feedback. It's a skill like any
+  other: you can read it, and agents (and the honer itself, while revising other skills) leave feedback on it. It is
+  never revised on its own: feedback waits for an admin to choose **Revise now**, and the honer never reviews its own
+  review. The rules that keep revisions safe, and the cap, live in honed itself and can't be edited away.
 
 ## An example
 

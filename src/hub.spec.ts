@@ -9,7 +9,7 @@ import { render, type Case, type Decision, type Judge } from "./judge.ts";
 
 const skillMd = (name: string, body = "Do the thing.") => `---\nname: ${name.split("/").pop()}\ndescription: When to use ${name}.\n---\n\n${body}\n`;
 const draft = (name: string, body?: string): DraftFile[] => [{ path: "SKILL.md", content: skillMd(name, body) }];
-const noChange: Decision = { reasoning: "Not yet.", changed: false, note: "", write: [], remove: [] };
+const noChange: Decision = { reasoning: "Not yet.", changed: false, note: "", write: [], remove: [], honer_feedback: "" };
 
 /** Decides as `decide` says, and keeps every case it was given. */
 class FakeJudge implements Judge {
@@ -29,7 +29,7 @@ class FakeJudge implements Judge {
 const takeDraft = (c: Case): Decision => {
   const d = [...c.feedback].reverse().find((f) => f.draft.length);
   return d
-    ? { reasoning: "Supported.", changed: true, note: d.text, write: d.draft.map((f) => ({ ...f, executable: f.executable ?? false })), remove: [] }
+    ? { reasoning: "Supported.", changed: true, note: d.text, write: d.draft.map((f) => ({ ...f, executable: f.executable ?? false })), remove: [], honer_feedback: "" }
     : noChange;
 };
 
@@ -122,8 +122,8 @@ describe("the judge", () => {
     hub = await Hub.open(dir, judge, { maxChars: 1000, starters: false });
     judge.decide_ = (c) =>
       c.failure
-        ? { reasoning: "Condensed.", changed: true, note: "small", write: draft("x", "short"), remove: [] } as Decision
-        : { reasoning: "All of it.", changed: true, note: "big", write: [{ path: "SKILL.md", content: skillMd("x", "y".repeat(1000)), executable: false }], remove: [] };
+        ? { reasoning: "Condensed.", changed: true, note: "small", write: draft("x", "short"), remove: [], honer_feedback: "" } as Decision
+        : { reasoning: "All of it.", changed: true, note: "big", write: [{ path: "SKILL.md", content: skillMd("x", "y".repeat(1000)), executable: false }], remove: [], honer_feedback: "" };
     await hub.submitFeedback({ skill: "x", text: "make it", files: draft("x") });
     await hub.idle();
     assert.equal(judge.cases.length, 2);
@@ -132,7 +132,7 @@ describe("the judge", () => {
     assert.equal(hub.store.versions("x")[0]?.note, "small");
 
     judge.cases = [];
-    judge.decide_ = () => ({ reasoning: "r", changed: true, note: "n", write: [{ path: "SKILL.md", content: "no frontmatter", executable: false }], remove: [] });
+    judge.decide_ = () => ({ reasoning: "r", changed: true, note: "n", write: [{ path: "SKILL.md", content: "no frontmatter", executable: false }], remove: [], honer_feedback: "" });
     await hub.submitFeedback({ skill: "x", text: "again", files: draft("x", "z") });
     await hub.idle();
     assert.equal(judge.cases.length, 3);
@@ -222,12 +222,12 @@ test("a server reopened on the same folder keeps everything, judges what was wai
 });
 
 describe("starters", () => {
-  test("ship once on a new library, with honed/judge, and come back only for honed/judge if it is ever missing", async () => {
+  test("ship once on a new library, with honed/honer, and come back only for honed/honer if it is ever missing", async () => {
     hub.close();
     const fresh = await mkdtemp(join(tmpdir(), "honed-starters-"));
     try {
       hub = await Hub.open(fresh, judge);
-      assert.deepEqual(hub.list().map((s) => s.name), ["default/code-review", "default/debugging", "default/git-commits", "honed/feedback", "honed/judge"]);
+      assert.deepEqual(hub.list().map((s) => s.name), ["default/code-review", "default/git-commits", "default/ux-review", "honed/honer", "honed/skill-writing"]);
       const [v] = hub.store.versions("default/git-commits");
       assert.equal(v?.note, "Shipped with honed");
       assert.equal(hub.judgment(v!.judgment).by, "starter");
@@ -244,7 +244,7 @@ describe("starters", () => {
     }
   });
 
-  test("honed/judge guides every revision, and is revised itself only when an admin asks", async () => {
+  test("honed/honer guides every revision, and is revised itself only when an admin asks", async () => {
     hub.close();
     const fresh = await mkdtemp(join(tmpdir(), "honed-starters-"));
     try {
@@ -253,14 +253,14 @@ describe("starters", () => {
       await hub.idle();
       assert.match(judge.cases.at(-1)!.guidance, /Weigh the evidence/);
       judge.cases = [];
-      await hub.submitFeedback({ skill: "honed/judge", text: "Be stricter about scripts.", files: [{ path: "SKILL.md", content: skillMd("honed/judge", "Stricter.") }] });
-      for (let i = 0; i < 3; i++) await hub.submitFeedback({ skill: "honed/judge", text: `more ${i}` });
+      await hub.submitFeedback({ skill: "honed/honer", text: "Be stricter about scripts.", files: [{ path: "SKILL.md", content: skillMd("honed/honer", "Stricter.") }] });
+      for (let i = 0; i < 3; i++) await hub.submitFeedback({ skill: "honed/honer", text: `more ${i}` });
       await hub.idle();
       assert.equal(judge.cases.length, 0);
-      assert.equal(hub.skill("honed/judge").version, 1);
-      hub.judgeNow("honed/judge");
+      assert.equal(hub.skill("honed/honer").version, 1);
+      hub.judgeNow("honed/honer");
       await hub.idle();
-      assert.equal(hub.skill("honed/judge").version, 2);
+      assert.equal(hub.skill("honed/honer").version, 2);
       assert.match(await hub.guidance(), /Stricter\./);
     } finally {
       await hub.idle();
@@ -295,7 +295,6 @@ describe("the reviewer's fixes", () => {
       const names = hub.search("how do I write a commit message").map((h) => h.name);
       assert.equal(names[0], "default/git-commits");
       assert.ok(!names.includes("default/code-review"), names.join(", "));
-      assert.ok(!names.includes("honed/judge"), names.join(", "));
       for (const h of hub.search("how do I write a commit message")) assert.doesNotMatch(h.snippet, /«(a|i|it|if|does|into)»/i);
       assert.deepEqual(hub.search("how do I").map((h) => h.name).length > 0, true, "a query of only filler words still searches");
     } finally {
@@ -312,7 +311,7 @@ describe("the reviewer's fixes", () => {
     assert.deepEqual((await hub.submitFeedback({ skill: "x", text: "a" })).next, { kind: "waiting", more: 2 });
     assert.deepEqual((await hub.submitFeedback({ skill: "x", text: "b" })).next, { kind: "waiting", more: 1 });
     assert.deepEqual((await hub.submitFeedback({ skill: "x", text: "c" })).next, { kind: "revising" });
-    assert.deepEqual((await hub.submitFeedback({ skill: "honed/judge", text: "stricter" })).next, { kind: "admin" });
+    assert.deepEqual((await hub.submitFeedback({ skill: "honed/honer", text: "stricter" })).next, { kind: "admin" });
     await hub.idle();
     hub.close();
     hub = await Hub.open(dir, null, { starters: false });
@@ -342,9 +341,41 @@ describe("the reviewer's fixes", () => {
     assert.deepEqual(hub.search("unique-word"), []);
     assert.equal(hub.store.waiting("typo-skil").length, 0);
     assert.equal(hub.store.versions("typo-skil").length, 1);
-    await assert.rejects(hub.delete("honed/judge", ""), /cannot be deleted|no skill/);
+    await assert.rejects(hub.delete("honed/honer", ""), /cannot be deleted|no skill/);
     await hub.submitFeedback({ skill: "typo-skil", text: "again", files: draft("typo-skil") });
     await hub.idle();
     assert.equal(hub.skill("typo-skil").version, 2);
+  });
+});
+
+describe("the honer's own guidance", () => {
+  test("the honer leaves feedback on honed/honer while revising other skills, but never while revising honed/honer", async () => {
+    hub.close();
+    const fresh = await mkdtemp(join(tmpdir(), "honed-honer-"));
+    try {
+      hub = await Hub.open(fresh, judge);
+      judge.decide_ = (c) => ({ ...takeDraft(c), honer_feedback: `Nothing said how to weigh drafts for ${c.skill}.` });
+      await hub.submitFeedback({ skill: "team/deploys", text: "make it", files: draft("team/deploys") });
+      await hub.idle();
+      const onHoner = hub.store.waiting("honed/honer");
+      assert.equal(onHoner.length, 1);
+      assert.equal(onHoner[0]!.author, "the honer (revising team/deploys)");
+      assert.match(onHoner[0]!.text, /weigh drafts for team\/deploys/);
+      assert.equal(judge.cases.at(-1)!.writingGuide?.startsWith("# Writing a new skill"), true, "a new skill is held to honed/skill-writing");
+
+      await hub.submitFeedback({ skill: "honed/honer", text: "Say what to do with contradicting drafts.", files: draft("honed/honer", "Prefer the draft with evidence.") });
+      await hub.idle();
+      assert.equal(hub.skill("honed/honer").version, 1, "waits for an admin");
+      hub.judgeNow("honed/honer");
+      await hub.idle();
+      assert.equal(hub.skill("honed/honer").version, 2);
+      assert.equal(judge.cases.at(-1)!.writingGuide, null);
+      assert.equal(hub.store.waiting("honed/honer").length, 0, "its feedback on itself, while revising itself, is dropped");
+    } finally {
+      await hub.idle();
+      hub.close();
+      await rm(fresh, { recursive: true, force: true });
+      hub = await Hub.open(dir, judge, { starters: false });
+    }
   });
 });

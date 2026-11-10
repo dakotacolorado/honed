@@ -7,8 +7,8 @@ import type { Hub } from "./hub.ts";
 export const INSTRUCTIONS = `honed is your organization's shared skills library, and it improves from your feedback.
 
 - Before a task, search_skills for what it is about (or list_skills), and get_skill any whose description fits. Follow what you read.
-- After using a skill, submit_feedback once: what happened, and what should change. Be concrete; this is how skills improve. Include files when you know the fix.
-- To add a skill, submit_feedback under its new name, saying what it is for, with a draft of its ${SKILL_FILE}.`;
+- After using a skill, submit_feedback once: what happened, and what should change. Be concrete: an error, a reviewer's comment, or what you did differently beats an opinion. If it simply worked, say so briefly. Include files when you know the exact fix. Never include secrets or personal details.
+- To add a skill, read honed/skill-writing first, then submit_feedback under the new name with a draft of its ${SKILL_FILE}.`;
 
 const text = (value: unknown) => ({ content: [{ type: "text" as const, text: typeof value === "string" ? value : JSON.stringify(value, null, 2) }] });
 
@@ -80,7 +80,7 @@ export function mcpServer(hub: Hub, version: string, caller: Caller, local: bool
     "submit_feedback",
     {
       title: "Submit feedback on a skill",
-      description: `What happened when you used a skill, and what should change. Include files to suggest exact text. Under a name no skill has yet, it asks for that skill: say what it is for and draft its ${SKILL_FILE}. Skills are revised from this feedback.`,
+      description: `What happened when you used a skill, and what should change: the task, what the skill said, the result, and what would have helped, with evidence where you have it. Include files to suggest exact text. Under a name no skill has yet, it asks for that skill: follow honed/skill-writing and draft its ${SKILL_FILE}. Skills are revised from this feedback.`,
       inputSchema: {
         name: z.string().describe("The skill, e.g. default/code-review: an optional prefix for its group, then lowercase letters, digits and hyphens."),
         feedback: z.string().describe("What happened in your work, and what should change."),

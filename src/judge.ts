@@ -14,6 +14,9 @@ export const DecisionSchema = z.object({
     .array(z.object({ path: z.string(), content: z.string(), executable: z.boolean() }))
     .describe("For a new version: each file to write, with its whole content. Empty otherwise."),
   remove: z.array(z.string()).describe("For a new version: each file to delete. Empty otherwise."),
+  honer_feedback: z
+    .string()
+    .describe("Feedback on your own guidance (the honed/honer skill): what deciding this showed it gets wrong or leaves out. Empty when nothing, and always empty when the skill is honed/honer."),
 });
 
 export type Decision = z.infer<typeof DecisionSchema>;
@@ -35,8 +38,10 @@ export interface Case {
   precedent: Judgment[];
   /** Why the judge's last attempt at this same case was refused, for it to correct. */
   failure: string | null;
-  /** How to judge: the body of the honed/judge skill's current version. */
+  /** How to judge: the body of the honed/honer skill's current version. */
   guidance: string;
+  /** For a skill that does not exist yet: the body of honed/skill-writing, the standard a new skill is held to. */
+  writingGuide: string | null;
 }
 
 export interface Judge {
@@ -68,16 +73,17 @@ export function render(c: Case): string {
   return [
     `<skill name="${c.skill}" version="${c.version}" characters="${textSize(c.files)}" cap="${c.maxChars}">\n${current}\n</skill>`,
     `<other_skills>\n${c.others.map((o) => `<skill name="${attr(o.name)}">${o.description}</skill>`).join("\n") || "none"}\n</other_skills>`,
+    ...(c.writingGuide ? [`<skill_writing_guide>\n${c.writingGuide}\n</skill_writing_guide>`] : []),
     `<new_feedback>\n${feedback || "none"}\n</new_feedback>`,
     `<your_recent_judgments_on_this_skill>\n${precedent || "none"}\n</your_recent_judgments_on_this_skill>`,
     ...(c.failure ? [`<your_last_attempt_was_refused>\n${c.failure}\n</your_last_attempt_was_refused>`] : []),
   ].join("\n\n");
 }
 
-/** What every revision must keep to, whatever the honed/judge skill says: the cap, safety and the decision's form. */
+/** What every revision must keep to, whatever the honed/honer skill says: the cap, safety and the decision's form. */
 export const JUDGE_CONTRACT = readFileSync(new URL("./judge-contract.md", import.meta.url), "utf8");
 
-export const systemPrompt = (guidance: string) => `${JUDGE_CONTRACT}\n\n# Your judging guidance (the honed/judge skill)\n\n${guidance.trim()}\n`;
+export const systemPrompt = (guidance: string) => `${JUDGE_CONTRACT}\n\n# Your guidance (the honed/honer skill)\n\n${guidance.trim()}\n`;
 
 export interface ClaudeJudgeOptions {
   /** The Claude Code executable. */

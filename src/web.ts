@@ -5,7 +5,7 @@ import { html, raw } from "hono/html";
 import type { HtmlEscapedString } from "hono/utils/html";
 import { callerOf } from "./auth.ts";
 import { TAGLINE, WORDMARK } from "./banner.ts";
-import { JUDGE_SKILL, LOCAL_CALLER, NAME_ROUTE, prefixOf, Refusal, SKILL_FILE, type Caller, type Feedback, type Judgment } from "./domain.ts";
+import { HONER_SKILL, LOCAL_CALLER, NAME_ROUTE, prefixOf, Refusal, SKILL_FILE, type Caller, type Feedback, type Judgment } from "./domain.ts";
 import type { Hub, SkillSummary } from "./hub.ts";
 import { mcpServer } from "./mcp.ts";
 
@@ -301,8 +301,8 @@ async function skillPage(hub: Hub, name: string, viewer: Viewer, version: string
       <h1 style="margin-top:14px">${name} ${pill(`v${skill.version}`)} ${judging ? pill("honing", "running") : ""}</h1>
       <p>${summary.description}</p>
       <div class="meta">${size(summary.chars, hub.maxChars)}<span>${summary.feedback} feedback on this version</span>${waiting ? pill(`${waiting} waiting`, "waiting") : ""}</div>
-      ${name === JUDGE_SKILL
-        ? html`<div class="note">This is how honed revises every skill, including this one. Feedback on it is welcome, and waits for an admin to choose <b>Revise now</b>; honed never revises its own judgment on its own. Its safety rules and the cap live in honed itself and can't be edited away.</div>`
+      ${name === HONER_SKILL
+        ? html`<div class="note">This is the honer's own guidance: how honed revises every skill. Agents and the honer itself leave feedback on it as they work, and it waits for an admin to choose <b>Revise now</b>; it is never revised on its own, and the honer never reviews its own review. Its safety rules and the cap live in honed itself and can't be edited away.</div>`
         : ""}
       ${admin && !judging && waiting ? action(`/api/skills/${name}/judge`, "Revise now") : ""}
 
@@ -342,7 +342,7 @@ async function skillPage(hub: Hub, name: string, viewer: Viewer, version: string
           </div>`;
         })}
       </div>
-      ${admin && name !== JUDGE_SKILL
+      ${admin && name !== HONER_SKILL
         ? html`<h2>delete</h2><details><summary class="small muted">delete ${name}</summary>
             <p class="small muted">Takes it out of the library and search. Its history stays in git, and feedback under its name can bring it back.</p>
             ${action(`/api/skills/${name}/delete`, `Delete ${name}`, { reason: "Why (kept in the history)", danger: true, then: "/" })}</details>`

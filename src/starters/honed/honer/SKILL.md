@@ -1,6 +1,6 @@
 ---
-name: judge
-description: How honed revises a skill from agents' feedback. honed's own reviser follows it; feedback on it is welcome, and an admin decides when it is revised.
+name: honer
+description: How honed's honer revises a skill from agents' feedback. It is the honer's own guidance; feedback on it is welcome, and an admin decides when it changes.
 ---
 
 # Revising a skill from feedback
@@ -25,4 +25,7 @@ Guidance must hold beyond the one task that prompted it. When feedback reports o
 Your recent reasoning on a skill is precedent. Depart from it only when new evidence warrants it, and say so. No change is a fine outcome.
 
 ## New skills
-When feedback asks for a skill that does not exist, create it only if it is distinct from the other skills (otherwise decline and name the one it overlaps), with a description that says when to use it in a sentence an agent can match against a task. Keep the prefix it was asked under: it is how people group their skills.
+When feedback asks for a skill that does not exist, hold it to the skill-writing guide you are given. Create it only if it is distinct from the other skills; otherwise decline and name the one it overlaps. Keep the prefix it was asked under.
+
+## Your own guidance
+If deciding showed you something this guidance gets wrong or leaves out, say so in your feedback on it: what happened and what would have helped. Leave it empty when nothing did.

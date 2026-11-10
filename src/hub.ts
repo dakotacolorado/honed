@@ -9,7 +9,9 @@ import {
   DEFAULT_MAX_CHARS,
   FEEDBACK_BATCH,
   frontmatter,
-  JUDGE_SKILL,
+  HONER_AUTHOR,
+  HONER_SKILL,
+  WRITING_SKILL,
   JUDGMENT_ATTEMPTS,
   newId,
   now,
@@ -52,7 +54,7 @@ export type Next =
 export interface HubOptions {
   /** The hard cap on a skill's text, all its files together. */
   maxChars?: number;
-  /** Add the starter skills on first run, and honed/judge whenever it is missing (default true); false adds nothing, for tests. */
+  /** Add the starter skills on first run, and honed/honer whenever it is missing (default true); false adds nothing, for tests. */
   starters?: boolean;
   log?: (line: string) => void;
 }
@@ -121,10 +123,10 @@ export class Hub {
     this.store.close();
   }
 
-  /** Adds the starters the first time honed runs on a library, and honed/judge whenever it is missing. */
+  /** Adds the starters the first time honed runs on a library, and honed/honer whenever it is missing. */
   private async seed(starters: boolean): Promise<void> {
     if (!starters) return;
-    const names = this.store.meta("seeded") ? [JUDGE_SKILL] : await starterNames();
+    const names = this.store.meta("seeded") ? [HONER_SKILL] : await starterNames();
     for (const name of names) {
       if (this.store.skill(name)) continue;
       const files = await readStarter(name);
@@ -137,9 +139,14 @@ export class Hub {
     this.store.setMeta("seeded", now());
   }
 
-  /** The reviser's judging guidance: the honed/judge skill's current SKILL.md, without its frontmatter. */
-  async guidance(): Promise<string> {
-    return body((await this.current(JUDGE_SKILL)).find((f) => f.path === SKILL_FILE)?.content ?? "");
+  /** A skill's current SKILL.md without its frontmatter, or "" if it has none. */
+  private async bodyOf(name: string): Promise<string> {
+    return body((await this.current(name)).find((f) => f.path === SKILL_FILE)?.content ?? "");
+  }
+
+  /** The honer's guidance: honed/honer's current SKILL.md, without its frontmatter. */
+  guidance(): Promise<string> {
+    return this.bodyOf(HONER_SKILL);
   }
 
   /** One write at a time, so each version is made from the version it read. */
@@ -245,7 +252,7 @@ export class Hub {
 
   private next(name: string, drafted: boolean): Next {
     if (!this.judge) return { kind: "off" };
-    if (name === JUDGE_SKILL) return { kind: "admin" };
+    if (name === HONER_SKILL) return { kind: "admin" };
     const waiting = this.store.waiting(name);
     if (drafted || !this.store.skill(name) || waiting.some((f) => f.draft.length) || waiting.length >= FEEDBACK_BATCH) return { kind: "revising" };
     return { kind: "waiting", more: FEEDBACK_BATCH - waiting.length };
@@ -288,7 +295,7 @@ export class Hub {
   /** Takes a skill out of the library and search. Its history stays in git and its feedback on record; waiting feedback is closed by the deletion, so it cannot bring the skill back. */
   delete(name: string, reason: string, actor = "you"): Promise<Judgment> {
     return this.exclusive(async () => {
-      if (name === JUDGE_SKILL) throw new Refusal(`${JUDGE_SKILL} is how honed revises every skill, so it cannot be deleted; revert or edit it instead`, 409);
+      if (name === HONER_SKILL) throw new Refusal(`${HONER_SKILL} is how honed revises every skill, so it cannot be deleted; revert or edit it instead`, 409);
       const skill = this.skill(name);
       const j = this.started(name, "person", actor);
       j.reasoning = reason.trim() || `Deleted at version ${skill.version}.`;
@@ -342,8 +349,8 @@ export class Hub {
   /** Asks for a judgment on a skill when its feedback calls for one; one at a time per skill. */
   schedule(name: string, force = false): void {
     if (!this.judge) return;
-    // The judge does not revise its own guidance on its own: feedback on it waits for an admin.
-    if (name === JUDGE_SKILL && !force) return;
+    // The honer does not revise its own guidance on its own: feedback on it waits for an admin.
+    if (name === HONER_SKILL && !force) return;
     if (this.running.has(name)) {
       this.dirty.add(name);
       return;
@@ -383,6 +390,7 @@ export class Hub {
       precedent: this.store.judgments(name, PRECEDENT * 2).filter((j) => j.state === "done" && j.by === "judge").slice(0, PRECEDENT),
       failure,
       guidance: await this.guidance(),
+      writingGuide: version === 0 ? await this.bodyOf(WRITING_SKILL) || null : null,
     };
   }
 
@@ -422,6 +430,20 @@ export class Hub {
       j.version = await this.commit(c.skill, files, d.note.trim() || "Changed from feedback", j);
     }
     this.finish(j, d.changed, c.feedback.map((f) => f.id));
+    // One level of self-review: the honer may give feedback on its guidance while revising any other skill, never while revising its guidance.
+    const reflection = d.honer_feedback.trim();
+    if (reflection && c.skill !== HONER_SKILL && this.store.skill(HONER_SKILL)) {
+      this.store.addFeedback({
+        id: newId(),
+        skill: HONER_SKILL,
+        version: this.store.skill(HONER_SKILL)!.version,
+        text: reflection,
+        draft: [],
+        author: `${HONER_AUTHOR} (revising ${c.skill})`,
+        at: now(),
+        judgment: null,
+      });
+    }
   }
 }
 

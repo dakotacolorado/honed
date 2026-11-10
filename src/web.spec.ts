@@ -22,8 +22,8 @@ const takeDraft: Judge = {
   async decide(c) {
     const d = [...c.feedback].reverse().find((f) => f.draft.length);
     return (d
-      ? { reasoning: "Supported by the report.", changed: true, note: d.text, write: d.draft.map((f) => ({ ...f, executable: f.executable ?? false })), remove: [] }
-      : { reasoning: "Not yet.", changed: false, note: "", write: [], remove: [] }) satisfies Decision;
+      ? { reasoning: "Supported by the report.", changed: true, note: d.text, write: d.draft.map((f) => ({ ...f, executable: f.executable ?? false })), remove: [], honer_feedback: "" }
+      : { reasoning: "Not yet.", changed: false, note: "", write: [], remove: [], honer_feedback: "" }) satisfies Decision;
   },
 };
 

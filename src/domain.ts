@@ -4,8 +4,12 @@ export const SKILL_FILE = "SKILL.md";
 /** The most text a skill may hold, all its files together, unless the server is started with another. */
 export const DEFAULT_MAX_CHARS = 20_000;
 export const MAX_FILES = 100;
-/** The skill holding the reviser's own judging guidance: shipped with honed, revised only when an admin asks. */
-export const JUDGE_SKILL = "honed/judge";
+/** The honer's own guidance: shipped with honed, never deleted, revised only when an admin asks. */
+export const HONER_SKILL = "honed/honer";
+/** How to write a new skill: agents read it before drafting one, and the honer holds new skills to it. */
+export const WRITING_SKILL = "honed/skill-writing";
+/** Who the honer's feedback on its own guidance is recorded as written by. */
+export const HONER_AUTHOR = "the honer";
 /** Feedback without a draft waits for this many on a skill before the judge looks; a draft is judged at once. */
 export const FEEDBACK_BATCH = 3;
 /** Failed judgments in a row before a skill waits for new feedback. */
