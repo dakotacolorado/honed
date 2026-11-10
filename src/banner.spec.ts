@@ -9,7 +9,8 @@ test("says what honed is, where it is, and the one command to connect", () => {
   assert.ok(text.includes(WORDMARK));
   assert.match(text, /v1\.2\.3/);
   assert.match(text, /claude plugin marketplace add dakotacolorado\/honed\n  claude plugin install honed@honed\n/);
-  assert.match(text, /search_skills.*get_skill.*submit_feedback/s);
+  assert.match(text, /agents use a skill, say how it went, and honed revises it\./);
+  assert.doesNotMatch(text, /every version is kept/);
   assert.match(text, /Local only/);
 });
 

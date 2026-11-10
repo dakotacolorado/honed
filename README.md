@@ -9,11 +9,9 @@
 ╚═╝  ╚═╝ ╚═════╝ ╚═╝  ╚═══╝╚══════╝╚═════╝
 ```
 
-**Skills your agents sharpen every time they use them.** Share and hone skills across your organization: a
-searchable library of agent skills behind one MCP server.
+**Skills your agents sharpen every time they use them.**
 
-Your agents get skills and submit feedback when they use them, and each skill is revised from that feedback. Every
-version is kept, with why it changed.
+Share and hone skills across your organization: agents use a skill, say how it went, and honed revises it.
 
 ## Try it on your machine
 

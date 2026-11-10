@@ -129,7 +129,9 @@ describe("a local server, with no tokens", () => {
     const home = await (await fetch(s.base)).text();
     assert.match(home, /<title>honed<\/title>/);
     assert.ok(home.includes(encodeURIComponent("🗡️")), "the sword is the tab's icon");
-    assert.doesNotMatch(home, /class="wordmark"/, "once an agent has connected, the hero steps aside");
+    assert.match(home, /<a class="wordmark " href="\/"/, "the wordmark heads the page, full size at home");
+    assert.match(home, /agents use a skill, say how it went, and honed revises it\./);
+    assert.doesNotMatch(home, /header class="top"/);
     assert.match(home, /release-notes/);
     assert.match(home, /connect Claude Code/);
     assert.match(home, /claude plugin install honed@honed --config url=http:\/\/127\.0\.0\.1:\d+</);

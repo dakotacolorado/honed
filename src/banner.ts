@@ -11,6 +11,8 @@ export const WORDMARK = [
 
 
 export const TAGLINE = "Skills your agents sharpen every time they use them.";
+/** What honed is and how it works, in one line. */
+export const SUMMARY = "Share and hone skills across your organization: agents use a skill, say how it went, and honed revises it.";
 
 /** Colors only for a terminal that wants them (https://no-color.org). */
 export function palette(enabled: boolean) {
@@ -42,6 +44,7 @@ export function banner(b: BannerInfo): string {
     c.dim(`🗡 v${b.version}`),
     "",
     c.bold(TAGLINE),
+    SUMMARY,
     "",
     `  ${c.edge("▸")} Library   ${b.url}`,
     `  ${c.edge("▸")} Stored    ${tilde(b.dir)}`,
@@ -51,11 +54,7 @@ export function banner(b: BannerInfo): string {
     `  claude plugin install honed@honed${b.url === DEFAULT_URL ? "" : ` --config url=${b.url}`}`,
     ...(b.tokens ? [`  then /plugin configure honed@honed in a session, to give it your token`] : []),
     "",
-    c.bold("How it works"),
-    `  Before a task, agents ${c.edge("search_skills")} and ${c.edge("get_skill")}. After, they ${c.edge("submit_feedback")}:`,
-    "  what happened and what should change. Each skill is revised from that",
-    "  feedback, and every version is kept with why it changed.",
-    "",
+
     `  ${c.dim(b.reviser)}`,
     `  ${c.dim(b.tokens ? `${b.tokens} token${b.tokens === 1 ? "" : "s"}: every request needs one.` : "Local only: no tokens, answering this machine.")}`,
     `  ${c.dim("Ctrl+C to stop.")}`,

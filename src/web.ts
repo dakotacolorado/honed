@@ -4,7 +4,7 @@ import { deleteCookie, getCookie, setCookie } from "hono/cookie";
 import { html, raw } from "hono/html";
 import type { HtmlEscapedString } from "hono/utils/html";
 import { callerOf } from "./auth.ts";
-import { DEFAULT_URL, TAGLINE } from "./banner.ts";
+import { DEFAULT_URL, SUMMARY, TAGLINE, WORDMARK } from "./banner.ts";
 import { baseName, HONER_SKILL, LOCAL_CALLER, NAME_ROUTE, prefixOf, Refusal, SKILL_FILE, type Caller, type Feedback, type Judgment } from "./domain.ts";
 import { parseDiff } from "./diffview.ts";
 import { renderMarkdown, withoutFrontmatter } from "./markdown.ts";
@@ -49,9 +49,11 @@ main { max-width:920px; margin:0 auto; padding:20px 16px 72px; }
 a { color:var(--edge); text-decoration:none; } a:hover { text-decoration:underline; }
 :focus-visible { outline:2px solid var(--edge); outline-offset:2px; border-radius:4px; }
 .mono, code, pre, h1, h2, .name, .pill, button, .brand, .tabs a, .tag { font-family:var(--mono); }
-header.top { display:flex; gap:12px; align-items:center; padding-bottom:14px; margin-bottom:28px; border-bottom:1px dashed var(--line); flex-wrap:wrap; }
-.brand { font-weight:700; color:var(--fg); letter-spacing:.02em; }
-header.top .who { margin-left:auto; }
+a.wordmark { display:block; width:fit-content; color:var(--edge); line-height:1; margin:8px 0 14px; }
+a.wordmark:hover { text-decoration:none; opacity:.85; }
+a.wordmark pre { margin:0; padding:0; background:none; border:0; overflow:visible; white-space:pre; font-size:clamp(7px, 2.2vw, 13px); line-height:1; }
+a.wordmark.small { margin:0 0 18px; }
+a.wordmark.small pre { font-size:clamp(4px, 1vw, 6px); }
 h1 { font-size:22px; margin:0 0 6px; letter-spacing:-.01em; }
 h2 { font-size:14px; margin:36px 0 10px; color:var(--muted); font-weight:600; text-transform:lowercase; }
 .muted { color:var(--muted); } .small { font-size:13px; }
@@ -179,8 +181,8 @@ document.addEventListener("keydown", (ev) => {
 
 const FAVICON = `data:image/svg+xml,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><text x="16" y="26" font-size="26" text-anchor="middle">🗡️</text></svg>')}`;
 
-function page(title: string, body: Html, opts: { refresh?: boolean; viewer?: Viewer; version?: string; footer?: Html } = {}): Html {
-  const who = opts.viewer && !opts.viewer.local ? html`<span class="who small muted">${opts.viewer.caller.name}${opts.viewer.caller.admin ? " (admin)" : ""} · <a href="/logout">sign out</a></span>` : "";
+function page(title: string, body: Html, opts: { refresh?: boolean; viewer?: Viewer; version?: string; footer?: Html; home?: boolean } = {}): Html {
+  const who = opts.viewer && !opts.viewer.local ? html` · ${opts.viewer.caller.name}${opts.viewer.caller.admin ? " (admin)" : ""} · <a href="/logout">sign out</a>` : "";
   return html`<!doctype html>
 <html lang="en">
   <head>
@@ -193,9 +195,9 @@ function page(title: string, body: Html, opts: { refresh?: boolean; viewer?: Vie
   </head>
   <body>
     <main>
-      <header class="top"><a class="brand" href="/">🗡 honed</a><span class="muted small">share and hone skills across your organization</span>${who}</header>
+      <a class="wordmark ${opts.home ? "" : "small"}" href="/" aria-label="honed, all skills"><pre aria-hidden="true">${WORDMARK}</pre></a>
       ${body}
-      <footer>honed${opts.version ? ` v${opts.version}` : ""}${opts.footer ?? ""}</footer>
+      <footer>🗡 honed${opts.version ? ` v${opts.version}` : ""}${who}${opts.footer ?? ""}</footer>
     </main>
     <script>${raw(SCRIPT)}</script>
   </body>
@@ -317,13 +319,11 @@ function home(hub: Hub, origin: string, viewer: Viewer, q: string, group: string
   const connected = hub.store.anyFeedback();
   return page(
     "honed",
-    html`${connected
-        ? html`<p class="tagline">${TAGLINE}</p>`
-        : html`<div class="hero">
-            <p class="tagline">${TAGLINE}</p>
-            <p class="muted">Agents get a skill before a task and submit feedback after. Each skill is revised from what they say, and every version is kept.</p>
-          </div>
-          ${connect(origin, viewer, true)}`}
+    html`<div class="hero">
+        <p class="tagline">${TAGLINE}</p>
+        <p class="muted">${SUMMARY}</p>
+      </div>
+      ${connected ? "" : connect(origin, viewer, true)}
       <form class="search" method="get" action="/" role="search">
         <input type="search" name="q" value="${q}" placeholder="search skills…  ( / )" aria-label="Search skills" />
         <button type="submit">Search</button>
@@ -335,7 +335,7 @@ function home(hub: Hub, origin: string, viewer: Viewer, q: string, group: string
           ? html`${chips(skills, group)}<div class="grid">${shown.map((s) => skillCard(s, hub.maxChars))}</div>`
           : html`<div class="empty">No skills yet.<br />Ask an agent to <code>submit_feedback</code> under a new name with a draft <code>SKILL.md</code>, and the first one will be honed into shape.</div>`}
       ${judgments.length ? html`<h2>recently honed</h2><div class="feed">${judgments.map(feedLine)}</div>` : ""}`,
-    { refresh: !results && judgments.some((j) => j.state === "running"), viewer, version, footer: connected ? html` · ${connect(origin, viewer, false, true)}` : undefined },
+    { refresh: !results && judgments.some((j) => j.state === "running"), viewer, version, home: true, footer: connected ? html` · ${connect(origin, viewer, false, true)}` : undefined },
   );
 }
 
@@ -483,6 +483,7 @@ function loginPage(error?: string): Html {
       <p class="muted">This honed is shared. Paste the token you were given; <code>honed token create &lt;name&gt;</code> on the server makes one.</p>
       <form method="post" action="/login" class="search"><input type="password" name="token" placeholder="honed_…" aria-label="Token" autocomplete="current-password" /><button type="submit" class="primary">Sign in</button></form>
       ${error ? html`<p class="refusal" role="alert">${error}</p>` : ""}`,
+    { home: true },
   );
 }
 
