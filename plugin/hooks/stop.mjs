@@ -1,4 +1,4 @@
-// Before a session stops, asks for feedback on each honed skill it got and gave none on. Asks once: a session
+// Before a session stops, asks whether each honed skill it got and gave no feedback on fell short. Asks once: a session
 // already continuing because of a stop hook is let go, so it can never loop.
 import { readFileSync } from "node:fs";
 
@@ -41,7 +41,7 @@ if (!input.stop_hook_active && input.transcript_path) {
     console.log(
       JSON.stringify({
         decision: "block",
-        reason: `You used the honed skill${skills.length > 1 ? "s" : ""} ${skills.join(", ")} this session and gave no feedback. For each one you actually followed, call submit_feedback once: what happened, and what should change. That is how skills improve. Skip any you looked at but did not use, then finish.`,
+        reason: `You got the honed skill${skills.length > 1 ? "s" : ""} ${skills.join(", ")} this session and gave no feedback. For each one you followed, call submit_feedback only if it fell short: it was wrong, it left out something you had to find out, or the person or a check corrected you on what it covers. Say what happened and what it should say. If it simply worked, or what you would add is something any capable agent does anyway, send nothing. Then finish.`,
       }),
     );
   }

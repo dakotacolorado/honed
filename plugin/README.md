@@ -13,4 +13,4 @@ your system's secure store.
 
 - **MCP**: the server's four tools: `list_skills`, `search_skills`, `get_skill`, `submit_feedback`.
 - **SessionStart**: lists the library's skills, so the session searches them before it starts work.
-- **Stop**: if the session got a skill and gave no feedback on it, asks once for feedback before it ends.
+- **Stop**: if the session got a skill and gave no feedback on it, asks once, before it ends, for feedback on any that fell short.

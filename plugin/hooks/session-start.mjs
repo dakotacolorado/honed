@@ -14,7 +14,7 @@ try {
   const more = skills.length > LISTED ? `\n…and ${skills.length - LISTED} more; search_skills finds them.` : "";
   console.log(
     skills.length
-      ? `honed (${url}) has skills shared by your organization's agents. Before a task, search_skills for it and get_skill any that fit; after using one, submit_feedback once.\n${lines.join("\n")}${more}`
+      ? `honed (${url}) has skills shared by your organization's agents. Before a task, search_skills for it and get_skill any that fit; when one falls short, submit_feedback on it.\n${lines.join("\n")}${more}`
       : `honed (${url}) has no skills yet. When you work out how to do something others will need, submit_feedback under a new skill name with a draft of its SKILL.md.`,
   );
 } catch (e) {
