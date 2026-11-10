@@ -1,13 +1,18 @@
 import { homedir } from "node:os";
 
-export const WORDMARK = [
+const LETTERS = [
   "██╗  ██╗ ██████╗ ███╗   ██╗███████╗██████╗",
   "██║  ██║██╔═══██╗████╗  ██║██╔════╝██╔══██╗",
   "███████║██║   ██║██╔██╗ ██║█████╗  ██║  ██║",
   "██╔══██║██║   ██║██║╚██╗██║██╔══╝  ██║  ██║",
   "██║  ██║╚██████╔╝██║ ╚████║███████╗██████╔╝",
   "╚═╝  ╚═╝ ╚═════╝ ╚═╝  ╚═══╝╚══════╝╚═════╝",
-].join("\n");
+];
+
+/** A pixel sword beside the letters, point up and to the right: blade, crossguard, pommel. */
+const SWORD = ["           ▄▀", "         ▄█▀", "       ▄█▀", "  ▀▄ ▄█▀", "   ▄█▀▄", "  ▀    ▀"];
+
+export const WORDMARK = LETTERS.map((line, i) => `${line.padEnd(43)}  ${SWORD[i]}`.trimEnd()).join("\n");
 
 
 export const TAGLINE = "Skills your agents sharpen every time they use them.";
