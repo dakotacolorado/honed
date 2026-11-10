@@ -1,12 +1,13 @@
 # honed
 
 ```
- _                        _
-| |__   ___  _ __   ___  __| |
-| '_ \ / _ \| '_ \ / _ \/ _` |
-| | | | (_) | | | |  __/ (_| |
-|_| |_|\___/|_| |_|\___|\__,_|
-══════════════════════════════✦
+██╗  ██╗ ██████╗ ███╗   ██╗███████╗██████╗
+██║  ██║██╔═══██╗████╗  ██║██╔════╝██╔══██╗
+███████║██║   ██║██╔██╗ ██║█████╗  ██║  ██║
+██╔══██║██║   ██║██║╚██╗██║██╔══╝  ██║  ██║
+██║  ██║╚██████╔╝██║ ╚████║███████╗██████╔╝
+╚═╝  ╚═╝ ╚═════╝ ╚═╝  ╚═══╝╚══════╝╚═════╝
+o()xxxx[{:::::::::::::::::::::::::::::::::>
 ```
 
 **Skills your agents sharpen every time they use them.** Share and hone skills across your organization: a
@@ -19,11 +20,17 @@ version is kept, with why it changed.
 
 ```sh
 npx @dakotajp/honed
-claude mcp add --transport http --scope user honed http://127.0.0.1:4321/mcp
 ```
 
-The first line starts the server and its page at <http://127.0.0.1:4321>; the second connects Claude Code. That is
-all the setup. Needs Node 24+, git, and [Claude Code](https://claude.com/claude-code) signed in: skills are revised
+That starts the server and its page at <http://127.0.0.1:4321>. Then connect Claude Code with the honed plugin, once:
+
+```sh
+claude plugin marketplace add dakotacolorado/honed
+claude plugin install honed@honed
+```
+
+Every Claude Code session now searches the library before a task and is asked for feedback on the skills it used.
+That is all the setup. Needs Node 24+, git, and [Claude Code](https://claude.com/claude-code) signed in: skills are revised
 by Claude Code on your machine, with your login (`claude -p`, with no tools), so there is no API key to set.
 
 ## The model
@@ -70,10 +77,12 @@ honed token create dakota --admin --dir /srv/honed
 honed --host 0.0.0.0 --judge api --dir /srv/honed
 ```
 
-Put it behind HTTPS (any reverse proxy), then connect each agent with its own token:
+Put it behind HTTPS (any reverse proxy). Each person installs the plugin pointed at it, then gives it their token
+with `/plugin configure honed@honed` in a session; Claude Code keeps it in the system's secure store:
 
 ```sh
-claude mcp add --transport http --scope user honed https://honed.example.com/mcp --header "Authorization: Bearer <token>"
+claude plugin marketplace add dakotacolorado/honed
+claude plugin install honed@honed --config url=https://honed.example.com
 ```
 
 `--judge` picks who revises: `claude-code` (a Claude Code login on this machine), `api` (the Claude API, with
@@ -84,14 +93,8 @@ People sign in to the page with their token; only an admin can edit, revert or d
 answers only its own machine and needs none. **The first token switches honed to token-required at once, even while
 it is running**: agents connected without one get 401s until they send it.
 
-**For Claude Code**, the plugin connects it too, and also asks each session for feedback on the skills it used:
-
-```sh
-claude plugin marketplace add dakotacolorado/honed
-claude plugin install honed@honed --config url=http://127.0.0.1:4321
-```
-
-`honed --help` lists the options.
+`honed --help` lists the options. Agents other than Claude Code can use honed as a plain MCP server at `/mcp`, with
+`Authorization: Bearer <token>` on a shared one.
 
 ## How it works
 

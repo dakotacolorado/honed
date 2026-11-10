@@ -1,12 +1,16 @@
 import { homedir } from "node:os";
 
 export const WORDMARK = [
-  " _                        _",
-  "| |__   ___  _ __   ___  __| |",
-  "| '_ \\ / _ \\| '_ \\ / _ \\/ _` |",
-  "| | | | (_) | | | |  __/ (_| |",
-  "|_| |_|\\___/|_| |_|\\___|\\__,_|",
+  "██╗  ██╗ ██████╗ ███╗   ██╗███████╗██████╗",
+  "██║  ██║██╔═══██╗████╗  ██║██╔════╝██╔══██╗",
+  "███████║██║   ██║██╔██╗ ██║█████╗  ██║  ██║",
+  "██╔══██║██║   ██║██║╚██╗██║██╔══╝  ██║  ██║",
+  "██║  ██║╚██████╔╝██║ ╚████║███████╗██████╔╝",
+  "╚═╝  ╚═╝ ╚═════╝ ╚═╝  ╚═══╝╚══════╝╚═════╝",
 ].join("\n");
+
+/** A blade as wide as the wordmark, laid under it: hilt, blade, point. */
+export const SWORD = { hilt: "o()xxxx[{", blade: ":".repeat(43 - 10), point: ">" };
 
 export const TAGLINE = "Skills your agents sharpen every time they use them.";
 
@@ -15,6 +19,9 @@ export function palette(enabled: boolean) {
   const paint = (code: string) => (text: string) => (enabled ? `\x1b[${code}m${text}\x1b[0m` : text);
   return { edge: paint("38;5;37"), bold: paint("1"), dim: paint("2"), green: paint("38;5;108") };
 }
+
+/** Where the plugin looks for honed unless told otherwise. */
+export const DEFAULT_URL = "http://127.0.0.1:4321";
 
 const tilde = (path: string) => (path.startsWith(homedir()) ? `~${path.slice(homedir().length)}` : path);
 
@@ -31,21 +38,20 @@ export interface BannerInfo {
 /** What honed says when it starts: what it is, where it is, the one command to connect, and how it works. */
 export function banner(b: BannerInfo): string {
   const c = palette(b.color);
-  const mcp = `${b.url}/mcp`;
-  const header = b.tokens ? ' --header "Authorization: Bearer <token>"' : "";
   return [
     "",
     c.edge(WORDMARK),
-    `${c.dim("══════════════════════════════")}${c.edge("🗡")}  ${c.dim(`v${b.version}`)}`,
+    `${c.edge(SWORD.hilt)}${c.dim(SWORD.blade)}${c.edge(SWORD.point)}  ${c.dim(`v${b.version}`)}`,
     "",
     c.bold(TAGLINE),
     "",
     `  ${c.edge("▸")} Library   ${b.url}`,
-    `  ${c.edge("▸")} MCP       ${mcp}`,
     `  ${c.edge("▸")} Stored    ${tilde(b.dir)}`,
     "",
-    c.bold("Connect Claude Code (once):"),
-    `  claude mcp add --transport http --scope user honed ${mcp}${header}`,
+    c.bold("Connect Claude Code (once), with the honed plugin:"),
+    `  claude plugin marketplace add dakotacolorado/honed`,
+    `  claude plugin install honed@honed${b.url === DEFAULT_URL ? "" : ` --config url=${b.url}`}`,
+    ...(b.tokens ? [`  then /plugin configure honed@honed in a session, to give it your token`] : []),
     "",
     c.bold("How it works"),
     `  Before a task, agents ${c.edge("search_skills")} and ${c.edge("get_skill")}. After, they ${c.edge("submit_feedback")}:`,

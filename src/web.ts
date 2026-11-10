@@ -4,7 +4,7 @@ import { deleteCookie, getCookie, setCookie } from "hono/cookie";
 import { html, raw } from "hono/html";
 import type { HtmlEscapedString } from "hono/utils/html";
 import { callerOf } from "./auth.ts";
-import { TAGLINE, WORDMARK } from "./banner.ts";
+import { DEFAULT_URL, SWORD, TAGLINE, WORDMARK } from "./banner.ts";
 import { baseName, HONER_SKILL, LOCAL_CALLER, NAME_ROUTE, prefixOf, Refusal, SKILL_FILE, type Caller, type Feedback, type Judgment } from "./domain.ts";
 import { parseDiff } from "./diffview.ts";
 import { renderMarkdown, withoutFrontmatter } from "./markdown.ts";
@@ -56,11 +56,13 @@ h1 { font-size:22px; margin:0 0 6px; letter-spacing:-.01em; }
 h2 { font-size:14px; margin:36px 0 10px; color:var(--muted); font-weight:600; text-transform:lowercase; }
 .muted { color:var(--muted); } .small { font-size:13px; }
 .hero { margin:8px 0 24px; }
-.wordmark { color:var(--edge); font-size:clamp(10px, 3vw, 15px); line-height:1.25; margin:0; background:none; border:0; padding:0; overflow:visible; white-space:pre; }
-.edge { display:flex; align-items:center; width:31ch; max-width:100%; font-family:var(--mono); font-size:clamp(10px, 3vw, 15px); margin:4px 0 16px; }
-.edge::before { content:""; flex:1; border-top:2px solid var(--muted); opacity:.5; margin-right:6px; }
+.wordmark, .sword { font-size:clamp(7px, 2.2vw, 13px); margin:0; background:none; border:0; padding:0; overflow:visible; white-space:pre; }
+.wordmark { color:var(--edge); line-height:1; letter-spacing:0; }
+.sword { color:var(--muted); margin:6px 0 18px; line-height:1.2; }
+.sword b { color:var(--edge); font-weight:400; }
 .tagline { font-size:18px; font-weight:600; margin:0 0 4px; }
 pre { background:var(--sunk); border:1px solid var(--line); border-radius:8px; padding:12px 14px; overflow-x:auto; font-size:12.5px; line-height:1.5; margin:8px 0; white-space:pre-wrap; overflow-wrap:anywhere; }
+pre.cmd { white-space:pre; overflow-wrap:normal; }
 details { margin:8px 0; } summary { cursor:pointer; } summary:hover { color:var(--edge); }
 .card { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:14px 16px; margin:10px 0; }
 .connect summary { font-weight:600; }
@@ -303,12 +305,10 @@ function chips(skills: SkillSummary[], current: string): Html {
 }
 
 function connect(origin: string, viewer: Viewer, open: boolean, inline = false): Html {
-  return html`<details class="${inline ? "" : "card"} connect" ${open ? "open" : ""}><summary>${inline ? "connect an agent" : "Connect an agent"}</summary>
-    ${open && !inline ? html`<p class="small">honed is running, and no agent has connected yet. Any MCP client works; for Claude Code, one command, once:</p>` : html`<p class="small muted">Any MCP client works at <code>${origin}/mcp</code>. For Claude Code, one command, once:</p>`}
-    <pre>claude mcp add --transport http --scope user honed ${origin}/mcp${viewer.local ? "" : ' --header "Authorization: Bearer <your token>"'}</pre>
-    <p class="small muted">Or the plugin, which also asks each session for feedback on the skills it used:</p>
-    <pre>claude plugin marketplace add dakotacolorado/honed
-claude plugin install honed@honed --config url=${origin}</pre>
+  return html`<details class="${inline ? "" : "card"} connect" ${open ? "open" : ""}><summary>${inline ? "connect Claude Code" : "Connect Claude Code"}</summary>
+    <p class="small ${open && !inline ? "" : "muted"}">${open && !inline ? "honed is running, and no agent has connected yet. " : ""}Install the honed plugin, once. It connects every Claude Code session to this library, and asks each one for feedback on the skills it used.</p>
+    <pre class="cmd">claude plugin marketplace add dakotacolorado/honed
+claude plugin install honed@honed${origin === DEFAULT_URL ? "" : ` --config url=${origin}`}</pre>
     ${viewer.local ? "" : html`<p class="small muted">Then <code>/plugin configure honed@honed</code> in a session to give it your token.</p>`}
   </details>`;
 }
@@ -325,7 +325,7 @@ function home(hub: Hub, origin: string, viewer: Viewer, q: string, group: string
         ? html`<p class="tagline">${TAGLINE}</p>`
         : html`<div class="hero">
             <pre class="wordmark" aria-label="honed">${WORDMARK}</pre>
-            <div class="edge" aria-hidden="true">🗡</div>
+            <pre class="sword" aria-hidden="true"><b>${SWORD.hilt}</b>${SWORD.blade}<b>${SWORD.point}</b></pre>
             <p class="tagline">${TAGLINE}</p>
             <p class="muted">Agents get a skill before a task and submit feedback after. Each skill is revised from what they say, and every version is kept.</p>
           </div>
@@ -487,7 +487,7 @@ function loginPage(error?: string): Html {
     "Sign in · honed",
     html`<div class="hero">
         <pre class="wordmark" aria-label="honed">${WORDMARK}</pre>
-        <div class="edge" aria-hidden="true">🗡</div>
+        <pre class="sword" aria-hidden="true"><b>${SWORD.hilt}</b>${SWORD.blade}<b>${SWORD.point}</b></pre>
       </div>
       <h1>Sign in</h1>
       <p class="muted">This honed is shared. Paste the token you were given; <code>honed token create &lt;name&gt;</code> on the server makes one.</p>

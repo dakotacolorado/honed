@@ -131,8 +131,9 @@ describe("a local server, with no tokens", () => {
     assert.ok(home.includes(encodeURIComponent("🗡️")), "the sword is the tab's icon");
     assert.doesNotMatch(home, /class="wordmark"/, "once an agent has connected, the hero steps aside");
     assert.match(home, /release-notes/);
-    assert.match(home, /connect an agent/);
-    assert.match(home, /claude mcp add --transport http --scope user honed http:\/\/127\.0\.0\.1:\d+\/mcp</);
+    assert.match(home, /connect Claude Code/);
+    assert.match(home, /claude plugin install honed@honed --config url=http:\/\/127\.0\.0\.1:\d+</);
+    assert.doesNotMatch(home, /claude mcp add/);
     assert.doesNotMatch(home, /class="bar"/, "no size bar");
     assert.match(await (await fetch(`${s.base}/?q=grouping`)).text(), /release-notes/);
     assert.match(await (await fetch(`${s.base}/?q=zebra`)).text(), /No skill mentions that/);
@@ -282,7 +283,7 @@ describe("a server with tokens", () => {
     assert.match(cookie, /SameSite=Strict/);
     const home = await (await fetch(s.base, { headers: { cookie: cookie.split(";")[0]! } })).text();
     assert.match(home, /dakota \(admin\)/);
-    assert.match(home, /Authorization: Bearer &lt;your token&gt;/);
+    assert.match(home, /\/plugin configure honed@honed/);
   });
 });
 
