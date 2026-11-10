@@ -9,8 +9,6 @@ export const WORDMARK = [
   "╚═╝  ╚═╝ ╚═════╝ ╚═╝  ╚═══╝╚══════╝╚═════╝",
 ].join("\n");
 
-/** A blade as wide as the wordmark, laid under it: hilt, blade, point. */
-export const SWORD = { hilt: "o()xxxx[{", blade: ":".repeat(43 - 10), point: ">" };
 
 export const TAGLINE = "Skills your agents sharpen every time they use them.";
 
@@ -41,7 +39,7 @@ export function banner(b: BannerInfo): string {
   return [
     "",
     c.edge(WORDMARK),
-    `${c.edge(SWORD.hilt)}${c.dim(SWORD.blade)}${c.edge(SWORD.point)}  ${c.dim(`v${b.version}`)}`,
+    c.dim(`🗡 v${b.version}`),
     "",
     c.bold(TAGLINE),
     "",

@@ -4,7 +4,7 @@ import { deleteCookie, getCookie, setCookie } from "hono/cookie";
 import { html, raw } from "hono/html";
 import type { HtmlEscapedString } from "hono/utils/html";
 import { callerOf } from "./auth.ts";
-import { DEFAULT_URL, SWORD, TAGLINE, WORDMARK } from "./banner.ts";
+import { DEFAULT_URL, TAGLINE } from "./banner.ts";
 import { baseName, HONER_SKILL, LOCAL_CALLER, NAME_ROUTE, prefixOf, Refusal, SKILL_FILE, type Caller, type Feedback, type Judgment } from "./domain.ts";
 import { parseDiff } from "./diffview.ts";
 import { renderMarkdown, withoutFrontmatter } from "./markdown.ts";
@@ -56,10 +56,6 @@ h1 { font-size:22px; margin:0 0 6px; letter-spacing:-.01em; }
 h2 { font-size:14px; margin:36px 0 10px; color:var(--muted); font-weight:600; text-transform:lowercase; }
 .muted { color:var(--muted); } .small { font-size:13px; }
 .hero { margin:8px 0 24px; }
-.wordmark, .sword { font-size:clamp(7px, 2.2vw, 13px); margin:0; background:none; border:0; padding:0; overflow:visible; white-space:pre; }
-.wordmark { color:var(--edge); line-height:1; letter-spacing:0; }
-.sword { color:var(--muted); margin:6px 0 18px; line-height:1.2; }
-.sword b { color:var(--edge); font-weight:400; }
 .tagline { font-size:18px; font-weight:600; margin:0 0 4px; }
 pre { background:var(--sunk); border:1px solid var(--line); border-radius:8px; padding:12px 14px; overflow-x:auto; font-size:12.5px; line-height:1.5; margin:8px 0; white-space:pre-wrap; overflow-wrap:anywhere; }
 pre.cmd { white-space:pre; overflow-wrap:normal; }
@@ -324,8 +320,6 @@ function home(hub: Hub, origin: string, viewer: Viewer, q: string, group: string
     html`${connected
         ? html`<p class="tagline">${TAGLINE}</p>`
         : html`<div class="hero">
-            <pre class="wordmark" aria-label="honed">${WORDMARK}</pre>
-            <pre class="sword" aria-hidden="true"><b>${SWORD.hilt}</b>${SWORD.blade}<b>${SWORD.point}</b></pre>
             <p class="tagline">${TAGLINE}</p>
             <p class="muted">Agents get a skill before a task and submit feedback after. Each skill is revised from what they say, and every version is kept.</p>
           </div>
@@ -485,11 +479,7 @@ async function judgmentPage(hub: Hub, id: string, viewer: Viewer, version: strin
 function loginPage(error?: string): Html {
   return page(
     "Sign in · honed",
-    html`<div class="hero">
-        <pre class="wordmark" aria-label="honed">${WORDMARK}</pre>
-        <pre class="sword" aria-hidden="true"><b>${SWORD.hilt}</b>${SWORD.blade}<b>${SWORD.point}</b></pre>
-      </div>
-      <h1>Sign in</h1>
+    html`<h1>Sign in</h1>
       <p class="muted">This honed is shared. Paste the token you were given; <code>honed token create &lt;name&gt;</code> on the server makes one.</p>
       <form method="post" action="/login" class="search"><input type="password" name="token" placeholder="honed_…" aria-label="Token" autocomplete="current-password" /><button type="submit" class="primary">Sign in</button></form>
       ${error ? html`<p class="refusal" role="alert">${error}</p>` : ""}`,

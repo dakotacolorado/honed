@@ -17,7 +17,8 @@ const { version } = JSON.parse(readFileSync(new URL("../package.json", import.me
 const color = Boolean(process.stdout.isTTY) && !process.env.NO_COLOR;
 const c = palette(color);
 
-const USAGE = `${c.edge(WORDMARK)}  ${c.dim(`v${version}`)}
+const USAGE = `${c.edge(WORDMARK)}
+${c.dim(`🗡 v${version}`)}
 
 ${c.bold(TAGLINE)}
 A shared skills library over MCP. Agents get skills and submit feedback; each skill is revised from it.

@@ -7,7 +7,6 @@
 ██╔══██║██║   ██║██║╚██╗██║██╔══╝  ██║  ██║
 ██║  ██║╚██████╔╝██║ ╚████║███████╗██████╔╝
 ╚═╝  ╚═╝ ╚═════╝ ╚═╝  ╚═══╝╚══════╝╚═════╝
-o()xxxx[{:::::::::::::::::::::::::::::::::>
 ```
 
 **Skills your agents sharpen every time they use them.** Share and hone skills across your organization: a
