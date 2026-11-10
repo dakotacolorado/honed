@@ -9,8 +9,8 @@ const LETTERS = [
   "╚═╝  ╚═╝ ╚═════╝ ╚═╝  ╚═══╝╚══════╝╚═════╝",
 ];
 
-/** A pixel sword beside the letters, point up and to the right: blade, crossguard, pommel. */
-const SWORD = ["           ▄▀", "         ▄█▀", "       ▄█▀", "  ▀▄ ▄█▀", "   ▄█▀▄", "  ▀    ▀"];
+/** A pixel sword beside the letters, point up and to the right, drawn at two pixels a character with half blocks. */
+const SWORD = ["           ▄█", "         ▄██▀", "       ▄██▀", "  █▄ ▄██▀", "   ▄██▀▄", " ██▀    ▀"];
 
 export const WORDMARK = LETTERS.map((line, i) => `${line.padEnd(43)}  ${SWORD[i]}`.trimEnd()).join("\n");
 
