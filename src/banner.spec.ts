@@ -14,6 +14,10 @@ test("says what honed is, where it is, and the one command to connect", () => {
   assert.match(text, /Local only/);
 });
 
+test("points at the API's docs", () => {
+  assert.match(banner(info), /API +http:\/\/127\.0\.0\.1:4321\/api\/skills +docs http:\/\/127\.0\.0\.1:4321\/docs\/api\n/);
+});
+
 test("names the token header once tokens exist, and has no color codes unless asked", () => {
   const text = banner({ ...info, tokens: 2 });
   assert.match(text, /\/plugin configure honed@honed/);

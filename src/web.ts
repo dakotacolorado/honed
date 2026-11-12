@@ -1,8 +1,11 @@
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
-import { Hono, type Context } from "hono";
+import { OpenAPIHono, type RouteConfig } from "@hono/zod-openapi";
+import { readFileSync } from "node:fs";
+import type { Context, Handler } from "hono";
 import { deleteCookie, getCookie, setCookie } from "hono/cookie";
 import { html, raw } from "hono/html";
 import type { HtmlEscapedString } from "hono/utils/html";
+import { COOKIE, deleteRoute, describeApi, editRoute, getJudgmentRoute, getSkillRoute, honoPath, judgeRoute, limitRoute, listSkillsRoute, previewRoute, revertRoute, WRITE_HEADER } from "./api.ts";
 import { callerOf } from "./auth.ts";
 import { DEFAULT_URL, LETTERS_ONLY, SUMMARY, SWORD_PIXELS, TAGLINE } from "./banner.ts";
 import { baseName, HONER_SKILL, LOCAL_CALLER, NAME_ROUTE, prefixOf, Refusal, SKILL_FILE, type Caller, type Feedback, type Judgment } from "./domain.ts";
@@ -15,9 +18,13 @@ type Html = HtmlEscapedString | Promise<HtmlEscapedString>;
 
 /** Only these may name a server with no tokens, so a page on another site cannot reach it by rebinding a hostname to 127.0.0.1. */
 const LOCAL_HOSTS = new Set(["127.0.0.1", "localhost", "[::1]"]);
-/** Sent by the page with every write. A cross-site form cannot set it, and a cross-site fetch that does is refused by CORS. */
-export const WRITE_HEADER = "x-honed";
-const COOKIE = "honed_token";
+export { WRITE_HEADER };
+
+/** A file `npm run spec` writes and the package ships, read when first asked for: `npm run spec` builds an app before it has written them. */
+function shipped(path: string): () => string {
+  let content: string | undefined;
+  return () => (content ??= readFileSync(new URL(`../${path}`, import.meta.url), "utf8"));
+}
 
 export interface AppOptions {
   /** Bound beyond this machine: every request then needs a token, even before any exists. */
@@ -510,8 +517,13 @@ function notFound(message: string): Html {
 
 const field = (body: Record<string, unknown>, key: string) => (typeof body[key] === "string" ? (body[key] as string) : "");
 
-export function app(hub: Hub, version: string, opts: AppOptions = {}): Hono<Env> {
-  const web = new Hono<Env>();
+export function app(hub: Hub, version: string, opts: AppOptions = {}): OpenAPIHono<Env> {
+  const web = new OpenAPIHono<Env>();
+  /** Answers at a route declared in `api.ts`, and puts it in the contract; the handler reads the request as it always has. */
+  const declare = (route: RouteConfig, handler: Handler<Env>) => {
+    web.openAPIRegistry.registerPath(route);
+    web.on(route.method.toUpperCase(), honoPath(route.path), handler);
+  };
   const shared = opts.shared ?? false;
 
   web.onError((e, c) => {
@@ -522,6 +534,11 @@ export function app(hub: Hub, version: string, opts: AppOptions = {}): Hono<Env>
     console.error(e);
     return c.json({ error: "something went wrong in the server; its log says what" }, 500);
   });
+
+  // The contract and docs need no token and hold no data, so they are served before the auth that would ask for one.
+  describeApi(web, version);
+  const apiDocs = shipped("docs/index.html");
+  web.get("/docs/api", (c) => c.html(apiDocs()));
 
   web.get("/login", (c) => c.html(loginPage()));
   web.post("/login", async (c) => {
@@ -561,51 +578,49 @@ export function app(hub: Hub, version: string, opts: AppOptions = {}): Hono<Env>
     return transport.handleRequest(c.req.raw);
   });
 
-  const writes = new Hono<Env>();
-  writes.use("*", async (c, next) => {
+  declare(listSkillsRoute, (c) => {
+    const q = c.req.query("q");
+    return c.json(q ? hub.search(q, Number(c.req.query("limit") ?? 20)) : hub.list());
+  });
+  declare(getSkillRoute, async (c) => {
+    const name = c.req.param("name")!;
+    return c.json({ ...hub.skill(name), files: await hub.current(name), versions: hub.store.versions(name), feedback: hub.store.feedback(name) });
+  });
+  declare(getJudgmentRoute, (c) => c.json({ ...hub.judgment(c.req.param("id")!), feedback: hub.store.feedbackOf(c.req.param("id")!) }));
+
+  web.use("/api/*", async (c, next) => {
     if (c.req.method === "GET" || c.req.method === "HEAD") return next();
     if (c.req.header(WRITE_HEADER) !== "1") return c.json({ error: `a write must carry the ${WRITE_HEADER} header` }, 403);
     if (!c.get("viewer").caller.admin) return c.json({ error: "this takes an admin token" }, 403);
     return next();
   });
   const body = async (c: Context) => ((await c.req.json().catch(() => ({}))) ?? {}) as Record<string, unknown>;
-  writes.post(`/skills/:name${NAME_ROUTE}/revert`, async (c) => {
+  declare(revertRoute, async (c) => {
     const b = await body(c);
-    return c.json(await hub.revert(c.req.param("name"), Number(field(b, "version") || b.version), field(b, "reason"), c.get("viewer").caller.name));
+    return c.json(await hub.revert(c.req.param("name")!, Number(field(b, "version") || b.version), field(b, "reason"), c.get("viewer").caller.name));
   });
-  writes.post(`/skills/:name${NAME_ROUTE}/edit`, async (c) => {
+  declare(editRoute, async (c) => {
     const b = await body(c);
     const remove = field(b, "remove");
     const change = remove ? { remove: [remove] } : { write: [{ path: field(b, "path").trim(), content: field(b, "content") }] };
     if (!remove && !change.write![0]!.path) throw new Refusal("a file needs a path");
-    return c.json(await hub.edit(c.req.param("name"), change, field(b, "reason"), c.get("viewer").caller.name));
+    return c.json(await hub.edit(c.req.param("name")!, change, field(b, "reason"), c.get("viewer").caller.name));
   });
-  writes.post(`/skills/:name${NAME_ROUTE}/preview`, async (c) => {
+  declare(previewRoute, async (c) => {
     const b = await body(c);
     const remove = field(b, "remove");
     const change = remove ? { remove: [remove] } : { write: [{ path: field(b, "path").trim(), content: field(b, "content") }] };
     if (!remove && !change.write![0]!.path) throw new Refusal("a file needs a path");
-    const shown = await diffView(await hub.preview(c.req.param("name"), change));
+    const shown = await diffView(await hub.preview(c.req.param("name")!, change));
     return c.json({ html: String(shown) });
   });
-  writes.post(`/skills/:name${NAME_ROUTE}/limit`, async (c) => {
+  declare(limitRoute, async (c) => {
     const b = await body(c);
     const raw = typeof b.maxChars === "number" ? String(b.maxChars) : field(b, "maxChars").trim();
-    return c.json(hub.setLimit(c.req.param("name"), raw === "" ? null : Number(raw)));
+    return c.json(hub.setLimit(c.req.param("name")!, raw === "" ? null : Number(raw)));
   });
-  writes.post(`/skills/:name${NAME_ROUTE}/delete`, async (c) => c.json(await hub.delete(c.req.param("name"), field(await body(c), "reason"), c.get("viewer").caller.name)));
-  writes.post(`/skills/:name${NAME_ROUTE}/judge`, (c) => (hub.judgeNow(c.req.param("name")), c.json({ revising: true })));
-  web.route("/api", writes);
-
-  web.get("/api/skills", (c) => {
-    const q = c.req.query("q");
-    return c.json(q ? hub.search(q, Number(c.req.query("limit") ?? 20)) : hub.list());
-  });
-  web.get(`/api/skills/:name${NAME_ROUTE}`, async (c) => {
-    const name = c.req.param("name");
-    return c.json({ ...hub.skill(name), files: await hub.current(name), versions: hub.store.versions(name), feedback: hub.store.feedback(name) });
-  });
-  web.get("/api/judgments/:id", (c) => c.json({ ...hub.judgment(c.req.param("id")), feedback: hub.store.feedbackOf(c.req.param("id")) }));
+  declare(deleteRoute, async (c) => c.json(await hub.delete(c.req.param("name")!, field(await body(c), "reason"), c.get("viewer").caller.name)));
+  declare(judgeRoute, (c) => (hub.judgeNow(c.req.param("name")!), c.json({ revising: true })));
 
   web.get("/", (c) => c.html(home(hub, new URL(c.req.url).origin, c.get("viewer"), c.req.query("q") ?? "", c.req.query("group") ?? "", version)));
   web.get(`/skills/:name${NAME_ROUTE}`, async (c) =>
