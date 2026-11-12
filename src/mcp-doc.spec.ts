@@ -22,7 +22,7 @@ test("the committed mcp.json and its renderings are what honed serves: npm run s
 
 test("the docs give every tool with its arguments, and the instructions an agent is given", async () => {
   const doc = await served;
-  assert.equal(doc.instructions, INSTRUCTIONS);
+  assert.ok(doc.instructions.startsWith(INSTRUCTIONS));
   assert.deepEqual(doc.tools.map((t) => t.name), ["list_skills", "search_skills", "get_skill", "submit_feedback"]);
   const md = renderMcp(doc);
   for (const tool of doc.tools) {

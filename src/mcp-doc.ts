@@ -1,4 +1,6 @@
 import { DEFAULT_URL } from "./banner.ts";
+import { NAMESPACES_HEADER } from "./domain.ts";
+import { mcpJson } from "./mcp.ts";
 import { withApp } from "./spec.ts";
 
 interface JsonSchema {
@@ -27,14 +29,18 @@ export interface McpDocument {
   tools: McpTool[];
 }
 
-/** The MCP server as a client meets it: initialize, then `tools/list`, through the app, so the file cannot differ from what is served. */
+/**
+ * The MCP server as a client meets it: initialize, then `tools/list`, through the app, so the file cannot differ from
+ * what is served. Asked at the default address, which the served page replaces with the deployment's own, with no
+ * namespaces bound, on an empty library.
+ */
 export async function mcpDocument(): Promise<McpDocument> {
   return withApp(async (fetch) => {
     const rpc = async (id: number, method: string, params: object) => {
       const res = await fetch(
-        new Request("http://127.0.0.1/mcp", {
+        new Request(`${DEFAULT_URL}/mcp`, {
           method: "POST",
-          headers: { host: "127.0.0.1", "content-type": "application/json", accept: "application/json, text/event-stream" },
+          headers: { host: new URL(DEFAULT_URL).host, "content-type": "application/json", accept: "application/json, text/event-stream" },
           body: JSON.stringify({ jsonrpc: "2.0", id, method, params }),
         }),
       );
@@ -69,13 +75,15 @@ function inputs(schema: JsonSchema, prefix = ""): { name: string; type: string; 
   });
 }
 
-/** What `.mcp.json` says to reach honed; served, the address is the deployment's own. */
-const config = JSON.stringify({ mcpServers: { honed: { type: "http", url: `${DEFAULT_URL}/mcp`, headers: { Authorization: "Bearer honed_…" } } } }, null, 2);
+/** What a repo's `.mcp.json` says to reach honed; served, the address is the deployment's own. */
+const config = mcpJson(DEFAULT_URL, ["your-project", "shared"]);
 
 const CONNECT = [
   "Streamable HTTP at `/mcp`, stateless, answering JSON. A honed with no tokens, started on this machine alone, needs none and",
   "answers only `127.0.0.1`, `localhost` or `[::1]`; once it has tokens, every request carries one as",
   "`Authorization: Bearer honed_…`, from `honed token create`. Feedback is recorded as from that token's name.",
+  `\`${NAMESPACES_HEADER}\` names the namespaces a session's repo uses, comma-separated: it sees the skills in them and honed's own`,
+  "`honed/`, and no others. Without it, a session sees only `honed/`.",
   "A refusal comes back as the tool's error, in the server's words.",
 ];
 
@@ -89,7 +97,8 @@ export function renderMcp(doc: McpDocument): string {
     ...CONNECT,
     "",
     "Claude Code connects with the honed plugin (`claude plugin install honed@honed`), which also asks each session for",
-    "feedback. Any other client takes it in its MCP config, as `.mcp.json` does; leave out `headers` on a honed with no tokens:",
+    "feedback. A repo binds its sessions to its namespaces by committing a `.mcp.json` at its root, with each person's",
+    "token in `HONED_TOKEN` in their environment (on a honed with no tokens, leave out `Authorization`):",
     "",
     "```json",
     config,
@@ -100,7 +109,8 @@ export function renderMcp(doc: McpDocument): string {
     "",
     "## Instructions",
     "",
-    "What the server tells an agent when it connects:",
+    "What the server tells an agent when it connects. The first part is the same for every session; the rest names the",
+    "skills the session is bound to. Here, as a session bound to no namespace sees it, on an empty library:",
     "",
     ...doc.instructions.split("\n").map((line) => (line ? `> ${line}` : ">")),
     "",
@@ -148,10 +158,10 @@ blockquote{white-space:pre-wrap;margin:0}table{border-collapse:collapse;width:10
 </style></head><body>
 <h1>honed's MCP server</h1>
 <p>${inline(CONNECT.join(" "))}</p>
-<p>Claude Code connects with the honed plugin (<code>claude plugin install honed@honed</code>), which also asks each session for feedback. Any other client takes it in its MCP config, as <code>.mcp.json</code> does; leave out <code>headers</code> on a honed with no tokens:</p>
+<p>Claude Code connects with the honed plugin (<code>claude plugin install honed@honed</code>), which also asks each session for feedback. A repo binds its sessions to its namespaces by committing a <code>.mcp.json</code> at its root, with each person's token in <code>HONED_TOKEN</code> in their environment (on a honed with no tokens, leave out <code>Authorization</code>):</p>
 <pre>${esc(config)}</pre>
 <p>The contract is <a href="../mcp.json"><code>mcp.json</code></a>; the JSON API's docs are <a href="./api">here</a>.</p>
-<h2>Instructions</h2><p>What the server tells an agent when it connects:</p><blockquote>${esc(doc.instructions)}</blockquote>
+<h2>Instructions</h2><p>What the server tells an agent when it connects. The first part is the same for every session; the rest names the skills the session is bound to. Here, as a session bound to no namespace sees it, on an empty library:</p><blockquote>${esc(doc.instructions)}</blockquote>
 <h2>Tools</h2><ul>${index}</ul>
 ${tools}
 </body></html>

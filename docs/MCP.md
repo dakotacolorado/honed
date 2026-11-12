@@ -5,10 +5,13 @@
 Streamable HTTP at `/mcp`, stateless, answering JSON. A honed with no tokens, started on this machine alone, needs none and
 answers only `127.0.0.1`, `localhost` or `[::1]`; once it has tokens, every request carries one as
 `Authorization: Bearer honed_…`, from `honed token create`. Feedback is recorded as from that token's name.
+`x-honed-namespaces` names the namespaces a session's repo uses, comma-separated: it sees the skills in them and honed's own
+`honed/`, and no others. Without it, a session sees only `honed/`.
 A refusal comes back as the tool's error, in the server's words.
 
 Claude Code connects with the honed plugin (`claude plugin install honed@honed`), which also asks each session for
-feedback. Any other client takes it in its MCP config, as `.mcp.json` does; leave out `headers` on a honed with no tokens:
+feedback. A repo binds its sessions to its namespaces by committing a `.mcp.json` at its root, with each person's
+token in `HONED_TOKEN` in their environment (on a honed with no tokens, leave out `Authorization`):
 
 ```json
 {
@@ -17,7 +20,8 @@ feedback. Any other client takes it in its MCP config, as `.mcp.json` does; leav
       "type": "http",
       "url": "http://127.0.0.1:4321/mcp",
       "headers": {
-        "Authorization": "Bearer honed_…"
+        "Authorization": "Bearer ${HONED_TOKEN}",
+        "X-Honed-Namespaces": "your-project, shared"
       }
     }
   }
@@ -29,13 +33,31 @@ Its JSON API is described in [`API.md`](./API.md).
 
 ## Instructions
 
-What the server tells an agent when it connects:
+What the server tells an agent when it connects. The first part is the same for every session; the rest names the
+skills the session is bound to. Here, as a session bound to no namespace sees it, on an empty library:
 
 > honed is your organization's shared skills library, and it improves from your feedback.
 >
 > - Before a task, search_skills for what it is about (or list_skills), and get_skill any whose description fits. Follow what you read.
 > - After using a skill, submit_feedback only when it fell short: it was wrong, it left out something you had to find out, or a person or a check corrected you on what it covers. Quote the skill's text it is about exactly, show the evidence (a file as it is now, or a command and what it printed), and say what you did instead. If it simply worked, or your advice is something any capable agent does anyway, send nothing. Include files when you know the exact fix. Never include secrets or personal details.
 > - To add a skill, read honed/skill-writing first, then submit_feedback under the new name with a draft of its SKILL.md.
+>
+> This session's repo is bound to no namespace, so it sees only honed's own honed/ skills:
+> - none
+>
+> To bind a repo to the namespaces it uses (its own, plus any shared ones), commit this .mcp.json at its root, with your namespaces in x-honed-namespaces, and set HONED_TOKEN in each person's environment:
+> {
+>   "mcpServers": {
+>     "honed": {
+>       "type": "http",
+>       "url": "http://127.0.0.1:4321/mcp",
+>       "headers": {
+>         "Authorization": "Bearer ${HONED_TOKEN}",
+>         "X-Honed-Namespaces": "your-project, shared"
+>       }
+>     }
+>   }
+> }
 
 ## Tools
 
@@ -48,7 +70,7 @@ What the server tells an agent when it connects:
 
 ### list_skills
 
-Every skill in the library, with its description.
+Every skill this repo is bound to, with its description.
 
 No input.
 
