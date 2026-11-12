@@ -1,0 +1,1471 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "honed",
+    "version": "0.3.3",
+    "description": "honed's JSON API: the skills in the library, the feedback on them, and the judgments that changed them, read by the page and by anything else that wants them. Agents use the MCP server at `/mcp` instead (its docs are at `/docs/mcp`).\n\n## Tokens\n\nA honed with no tokens, started on this machine alone, is local: it answers only requests naming `127.0.0.1`, `localhost` or `[::1]` as their host, needs no token, and treats every caller as an admin.\n\nThe first token (`honed token create <name> [--admin]`) makes it shared at once: from then on every request but this contract and the docs carries one, as `Authorization: Bearer honed_…` or as the `honed_token` cookie that signing in on the page sets. A honed started on another host (`--host 0.0.0.0`) is shared from the start.\n\n## Writes\n\nEvery write is a `POST` that carries the `x-honed: 1` header, so a cross-site form cannot make one, and takes an admin token. Each is kept as a version of the skill, recorded as a judgment by a person, with the reason given.\n\n## Errors\n\nA refusal answers `{ \"error\": \"…\" }` in words a person can act on, with its status: 400 for a request that cannot be done as asked, 401 for a missing or unknown token, 403 for a write without the header or an admin token (or a local honed asked under another host name), 404 for a skill, version or judgment that does not exist, and 409 for a change that conflicts with the skill as it is.",
+    "license": {
+      "name": "MIT"
+    }
+  },
+  "tags": [
+    {
+      "name": "skills",
+      "description": "The library: each skill, its files, versions and feedback."
+    },
+    {
+      "name": "judgments",
+      "description": "Why a skill is as it is."
+    },
+    {
+      "name": "writes",
+      "description": "A person's changes. Each takes an admin token and the write header."
+    }
+  ],
+  "components": {
+    "securitySchemes": {
+      "bearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "description": "A token from `honed token create`."
+      },
+      "cookieAuth": {
+        "type": "apiKey",
+        "in": "cookie",
+        "name": "honed_token",
+        "description": "Set by signing in on the page."
+      }
+    },
+    "schemas": {
+      "ListedSkill": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/SkillSummary"
+          },
+          {
+            "type": "object",
+            "properties": {
+              "snippet": {
+                "type": "string",
+                "description": "Only with `q`: where the query matched, each match between « and »."
+              }
+            }
+          }
+        ]
+      },
+      "SkillSummary": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "A skill's name, with its group prefix if it has one: `git-commits`, `team/code-review`.",
+            "example": "team/code-review"
+          },
+          "description": {
+            "type": "string",
+            "description": "The description in its SKILL.md's frontmatter."
+          },
+          "version": {
+            "type": "integer",
+            "description": "Its current version, counting from 1."
+          },
+          "chars": {
+            "type": "integer",
+            "description": "The text it holds, all its files together, in characters."
+          },
+          "limit": {
+            "type": "integer",
+            "description": "The most text it may hold: its own limit, or the library's default."
+          },
+          "feedback": {
+            "type": "integer",
+            "description": "Feedback on its current version."
+          },
+          "waiting": {
+            "type": "integer",
+            "description": "Feedback no revision has considered yet."
+          },
+          "updatedAt": {
+            "type": "string",
+            "description": "ISO 8601, UTC.",
+            "example": "2026-11-12T19:03:13.726Z"
+          }
+        },
+        "required": [
+          "name",
+          "description",
+          "version",
+          "chars",
+          "limit",
+          "feedback",
+          "waiting",
+          "updatedAt"
+        ]
+      },
+      "Error": {
+        "type": "object",
+        "properties": {
+          "error": {
+            "type": "string",
+            "description": "Why, in words a person can act on."
+          }
+        },
+        "required": [
+          "error"
+        ]
+      },
+      "SkillDetail": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "A skill's name, with its group prefix if it has one: `git-commits`, `team/code-review`.",
+            "example": "team/code-review"
+          },
+          "version": {
+            "type": "integer"
+          },
+          "createdAt": {
+            "type": "string",
+            "description": "ISO 8601, UTC.",
+            "example": "2026-11-12T19:03:13.726Z"
+          },
+          "maxChars": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "description": "The most text it may hold, set by an admin; null for the library's default."
+          },
+          "files": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SkillFile"
+            },
+            "description": "Its files at its current version."
+          },
+          "versions": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Version"
+            },
+            "description": "Every version, newest first."
+          },
+          "feedback": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Feedback"
+            },
+            "description": "Its latest feedback, at most 100, newest first."
+          }
+        },
+        "required": [
+          "name",
+          "version",
+          "createdAt",
+          "maxChars",
+          "files",
+          "versions",
+          "feedback"
+        ]
+      },
+      "SkillFile": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string",
+            "example": "SKILL.md"
+          },
+          "content": {
+            "type": "string"
+          },
+          "executable": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "path",
+          "content",
+          "executable"
+        ]
+      },
+      "Version": {
+        "type": "object",
+        "properties": {
+          "skill": {
+            "type": "string",
+            "description": "A skill's name, with its group prefix if it has one: `git-commits`, `team/code-review`.",
+            "example": "team/code-review"
+          },
+          "version": {
+            "type": "integer"
+          },
+          "commit": {
+            "type": "string",
+            "description": "The commit in the library's git repository that holds it."
+          },
+          "note": {
+            "type": "string",
+            "description": "What changed, in a line."
+          },
+          "judgment": {
+            "type": "string",
+            "description": "The judgment that made it."
+          },
+          "at": {
+            "type": "string",
+            "description": "ISO 8601, UTC.",
+            "example": "2026-11-12T19:03:13.726Z"
+          }
+        },
+        "required": [
+          "skill",
+          "version",
+          "commit",
+          "note",
+          "judgment",
+          "at"
+        ]
+      },
+      "Feedback": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "skill": {
+            "type": "string",
+            "description": "A skill's name, with its group prefix if it has one: `git-commits`, `team/code-review`.",
+            "example": "team/code-review"
+          },
+          "version": {
+            "type": "integer",
+            "description": "The version it was about; 0 for a skill that did not exist yet."
+          },
+          "text": {
+            "type": "string",
+            "description": "Anything else the agent said; for a new skill, what it is for."
+          },
+          "quote": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The exact text of the skill the report is about, found in that version's files; null for a new skill or the honer's own notes."
+          },
+          "evidence": {
+            "type": "array",
+            "items": {
+              "anyOf": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "path": {
+                      "type": "string"
+                    },
+                    "content": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "path",
+                    "content"
+                  ],
+                  "description": "A file, with its contents as the agent found them."
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "command": {
+                      "type": "string"
+                    },
+                    "output": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "command",
+                    "output"
+                  ],
+                  "description": "A command the agent ran, with what it printed."
+                }
+              ]
+            },
+            "description": "What shows the quote is wrong; empty when there is no quote."
+          },
+          "whatChanged": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "What the agent did instead of what the quote says, or what it changed; null when there is no quote."
+          },
+          "draft": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DraftFile"
+            },
+            "description": "Files the agent drafted with it, each written whole."
+          },
+          "author": {
+            "type": "string",
+            "description": "Its token's name, with the role the agent gave."
+          },
+          "at": {
+            "type": "string",
+            "description": "ISO 8601, UTC.",
+            "example": "2026-11-12T19:03:13.726Z"
+          },
+          "judgment": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The judgment that considered it; null while it waits for one."
+          }
+        },
+        "required": [
+          "id",
+          "skill",
+          "version",
+          "text",
+          "quote",
+          "evidence",
+          "whatChanged",
+          "draft",
+          "author",
+          "at",
+          "judgment"
+        ]
+      },
+      "DraftFile": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string"
+          },
+          "content": {
+            "type": "string"
+          },
+          "executable": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "path",
+          "content"
+        ]
+      },
+      "JudgmentDetail": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/Judgment"
+          },
+          {
+            "type": "object",
+            "properties": {
+              "feedback": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/Feedback"
+                },
+                "description": "The feedback it considered."
+              }
+            },
+            "required": [
+              "feedback"
+            ]
+          }
+        ]
+      },
+      "Judgment": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "skill": {
+            "type": "string",
+            "description": "A skill's name, with its group prefix if it has one: `git-commits`, `team/code-review`.",
+            "example": "team/code-review"
+          },
+          "by": {
+            "type": "string",
+            "enum": [
+              "judge",
+              "person",
+              "starter"
+            ],
+            "description": "The judge revising from feedback, a person's edit, revert or deletion, or a starter shipped with honed."
+          },
+          "actor": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "For a person's change, whose token made it."
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "running",
+              "done",
+              "failed"
+            ]
+          },
+          "startedAt": {
+            "type": "string",
+            "description": "ISO 8601, UTC.",
+            "example": "2026-11-12T19:03:13.726Z"
+          },
+          "finishedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "ISO 8601, UTC.",
+            "example": "2026-11-12T19:03:13.726Z"
+          },
+          "changed": {
+            "type": [
+              "boolean",
+              "null"
+            ],
+            "description": "Whether it changed the skill; null while running."
+          },
+          "reasoning": {
+            "type": "string",
+            "description": "Why: the judge's reasoning, or the reason the person gave."
+          },
+          "error": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "What went wrong, for a failed judgment."
+          },
+          "version": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "description": "The version it made, if it made one; null for a deletion."
+          }
+        },
+        "required": [
+          "id",
+          "skill",
+          "by",
+          "actor",
+          "state",
+          "startedAt",
+          "finishedAt",
+          "changed",
+          "reasoning",
+          "error",
+          "version"
+        ]
+      },
+      "Revert": {
+        "type": "object",
+        "properties": {
+          "version": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "string"
+              }
+            ],
+            "description": "The version to go back to, from 1 to the one before the current."
+          },
+          "reason": {
+            "type": "string",
+            "description": "Why, kept in the skill's history. Defaults to a line saying what was done."
+          }
+        },
+        "required": [
+          "version"
+        ]
+      },
+      "FileChange": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string",
+            "description": "The file to write, relative to the skill: `SKILL.md`, `scripts/check.sh`. Required unless `remove` is given."
+          },
+          "content": {
+            "type": "string",
+            "description": "Its whole new content. A file that exists keeps its executable bit."
+          },
+          "remove": {
+            "type": "string",
+            "description": "Instead of writing a file, the path of one to remove."
+          },
+          "reason": {
+            "type": "string",
+            "description": "Why, kept in the skill's history. Defaults to a line saying what was done."
+          }
+        }
+      },
+      "Preview": {
+        "type": "object",
+        "properties": {
+          "html": {
+            "type": "string",
+            "description": "The change as a diff, rendered as an HTML fragment for the page."
+          }
+        },
+        "required": [
+          "html"
+        ]
+      },
+      "Skill": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "A skill's name, with its group prefix if it has one: `git-commits`, `team/code-review`.",
+            "example": "team/code-review"
+          },
+          "version": {
+            "type": "integer"
+          },
+          "createdAt": {
+            "type": "string",
+            "description": "ISO 8601, UTC.",
+            "example": "2026-11-12T19:03:13.726Z"
+          },
+          "maxChars": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "description": "The most text it may hold, set by an admin; null for the library's default."
+          }
+        },
+        "required": [
+          "name",
+          "version",
+          "createdAt",
+          "maxChars"
+        ]
+      },
+      "Limit": {
+        "type": "object",
+        "properties": {
+          "maxChars": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "string"
+              }
+            ],
+            "description": "The limit in characters, at least 1. Empty or omitted for the library's default."
+          }
+        }
+      },
+      "Delete": {
+        "type": "object",
+        "properties": {
+          "reason": {
+            "type": "string",
+            "description": "Why, kept in the skill's history. Defaults to a line saying what was done."
+          }
+        }
+      },
+      "Revising": {
+        "type": "object",
+        "properties": {
+          "revising": {
+            "type": "boolean",
+            "enum": [
+              true
+            ]
+          }
+        },
+        "required": [
+          "revising"
+        ]
+      }
+    },
+    "parameters": {}
+  },
+  "paths": {
+    "/api/skills": {
+      "get": {
+        "operationId": "listSkills",
+        "tags": [
+          "skills"
+        ],
+        "summary": "List or search skills",
+        "description": "Every skill in the library, by name; with `q`, the skills whose name, description or text match any of its words, best first, each with where it matched.",
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "cookieAuth": []
+          },
+          {}
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": false,
+            "name": "q",
+            "in": "query",
+            "description": "Words to search for. Omit to list every skill."
+          },
+          {
+            "schema": {
+              "type": "integer",
+              "default": 20
+            },
+            "required": false,
+            "name": "limit",
+            "in": "query",
+            "description": "With `q`, the most results to return."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Every skill, by name; with `q`, the matches, best first, each with its `snippet`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ListedSkill"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No token, or one this server did not issue, on a shared honed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "A local honed asked under a host name other than this machine's.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/skills/{name}": {
+      "get": {
+        "operationId": "getSkill",
+        "tags": [
+          "skills"
+        ],
+        "summary": "Get a skill",
+        "description": "A skill with its files, every version, and its latest feedback.",
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "cookieAuth": []
+          },
+          {}
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "pattern": "^(?:[a-z0-9]+(?:-[a-z0-9]+)*\\/)?[a-z0-9]+(?:-[a-z0-9]+)*$"
+            },
+            "required": true,
+            "name": "name",
+            "in": "path",
+            "description": "The skill's name, with its group prefix if it has one: `git-commits`, `team/code-review`. The slash is not escaped."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The skill.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SkillDetail"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No token, or one this server did not issue, on a shared honed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "A local honed asked under a host name other than this machine's.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No skill has that name.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/judgments/{id}": {
+      "get": {
+        "operationId": "getJudgment",
+        "tags": [
+          "judgments"
+        ],
+        "summary": "Get a judgment",
+        "description": "One change, or decision not to change, to a skill, with the feedback it considered: why the skill is as it is.",
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "cookieAuth": []
+          },
+          {}
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "name": "id",
+            "in": "path",
+            "description": "The judgment's id, as a skill's versions and feedback name it."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The judgment.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JudgmentDetail"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No token, or one this server did not issue, on a shared honed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "A local honed asked under a host name other than this machine's.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No judgment has that id.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/skills/{name}/revert": {
+      "post": {
+        "operationId": "revertSkill",
+        "summary": "Revert a skill to an earlier version",
+        "description": "Makes a new version holding an earlier version's files. Needs an admin token.",
+        "tags": [
+          "writes"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "cookieAuth": []
+          },
+          {}
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "pattern": "^(?:[a-z0-9]+(?:-[a-z0-9]+)*\\/)?[a-z0-9]+(?:-[a-z0-9]+)*$"
+            },
+            "required": true,
+            "name": "name",
+            "in": "path",
+            "description": "The skill's name, with its group prefix if it has one: `git-commits`, `team/code-review`. The slash is not escaped."
+          },
+          {
+            "schema": {
+              "type": "string",
+              "enum": [
+                "1"
+              ]
+            },
+            "required": true,
+            "name": "x-honed",
+            "in": "header",
+            "description": "Required on every write: a cross-site form cannot send it."
+          }
+        ],
+        "requestBody": {
+          "description": "The version to revert to.",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Revert"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The judgment recording the revert, and the version it made.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Judgment"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The change cannot be made as asked: the skill would break a rule (its frontmatter, a path, the cap), or a field is missing.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No token, or one this server did not issue, on a shared honed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "No `x-honed` header, a token that is not an admin's, or a local honed asked under another host name.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No skill has that name.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/skills/{name}/edit": {
+      "post": {
+        "operationId": "editSkill",
+        "summary": "Write or remove one of a skill's files",
+        "description": "Writes one file whole, or removes one, as a new version, held to the same rules as any skill. Needs an admin token.",
+        "tags": [
+          "writes"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "cookieAuth": []
+          },
+          {}
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "pattern": "^(?:[a-z0-9]+(?:-[a-z0-9]+)*\\/)?[a-z0-9]+(?:-[a-z0-9]+)*$"
+            },
+            "required": true,
+            "name": "name",
+            "in": "path",
+            "description": "The skill's name, with its group prefix if it has one: `git-commits`, `team/code-review`. The slash is not escaped."
+          },
+          {
+            "schema": {
+              "type": "string",
+              "enum": [
+                "1"
+              ]
+            },
+            "required": true,
+            "name": "x-honed",
+            "in": "header",
+            "description": "Required on every write: a cross-site form cannot send it."
+          }
+        ],
+        "requestBody": {
+          "description": "The file to write, or the one to remove.",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FileChange"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The judgment recording the edit, and the version it made.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Judgment"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The change cannot be made as asked: the skill would break a rule (its frontmatter, a path, the cap), or a field is missing.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No token, or one this server did not issue, on a shared honed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "No `x-honed` header, a token that is not an admin's, or a local honed asked under another host name.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No skill has that name.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The change leaves the skill as it is.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/skills/{name}/preview": {
+      "post": {
+        "operationId": "previewEdit",
+        "summary": "Preview an edit as a diff",
+        "description": "What the same request to `edit` would change, refused as it would be. Changes nothing. Needs an admin token, since the page shows it before saving.",
+        "tags": [
+          "writes"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "cookieAuth": []
+          },
+          {}
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "pattern": "^(?:[a-z0-9]+(?:-[a-z0-9]+)*\\/)?[a-z0-9]+(?:-[a-z0-9]+)*$"
+            },
+            "required": true,
+            "name": "name",
+            "in": "path",
+            "description": "The skill's name, with its group prefix if it has one: `git-commits`, `team/code-review`. The slash is not escaped."
+          },
+          {
+            "schema": {
+              "type": "string",
+              "enum": [
+                "1"
+              ]
+            },
+            "required": true,
+            "name": "x-honed",
+            "in": "header",
+            "description": "Required on every write: a cross-site form cannot send it."
+          }
+        ],
+        "requestBody": {
+          "description": "The file to write, or the one to remove.",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FileChange"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The diff.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Preview"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The change cannot be made as asked: the skill would break a rule (its frontmatter, a path, the cap), or a field is missing.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No token, or one this server did not issue, on a shared honed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "No `x-honed` header, a token that is not an admin's, or a local honed asked under another host name.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No skill has that name.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/skills/{name}/limit": {
+      "post": {
+        "operationId": "setSkillLimit",
+        "summary": "Set a skill's size limit",
+        "description": "The most text the skill may hold, all its files together, for the judge's revisions and people's edits alike; it applies to every change from now on, and text already over it may only shrink. Needs an admin token.",
+        "tags": [
+          "writes"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "cookieAuth": []
+          },
+          {}
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "pattern": "^(?:[a-z0-9]+(?:-[a-z0-9]+)*\\/)?[a-z0-9]+(?:-[a-z0-9]+)*$"
+            },
+            "required": true,
+            "name": "name",
+            "in": "path",
+            "description": "The skill's name, with its group prefix if it has one: `git-commits`, `team/code-review`. The slash is not escaped."
+          },
+          {
+            "schema": {
+              "type": "string",
+              "enum": [
+                "1"
+              ]
+            },
+            "required": true,
+            "name": "x-honed",
+            "in": "header",
+            "description": "Required on every write: a cross-site form cannot send it."
+          }
+        ],
+        "requestBody": {
+          "description": "The limit to set.",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Limit"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The skill, with its limit now.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Skill"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The change cannot be made as asked: the skill would break a rule (its frontmatter, a path, the cap), or a field is missing.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No token, or one this server did not issue, on a shared honed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "No `x-honed` header, a token that is not an admin's, or a local honed asked under another host name.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No skill has that name.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/skills/{name}/delete": {
+      "post": {
+        "operationId": "deleteSkill",
+        "summary": "Delete a skill",
+        "description": "Takes a skill out of the library and search; its history stays in git, and feedback under its name can bring it back. Feedback waiting on it is closed by the deletion. `honed/honer` cannot be deleted. Needs an admin token.",
+        "tags": [
+          "writes"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "cookieAuth": []
+          },
+          {}
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "pattern": "^(?:[a-z0-9]+(?:-[a-z0-9]+)*\\/)?[a-z0-9]+(?:-[a-z0-9]+)*$"
+            },
+            "required": true,
+            "name": "name",
+            "in": "path",
+            "description": "The skill's name, with its group prefix if it has one: `git-commits`, `team/code-review`. The slash is not escaped."
+          },
+          {
+            "schema": {
+              "type": "string",
+              "enum": [
+                "1"
+              ]
+            },
+            "required": true,
+            "name": "x-honed",
+            "in": "header",
+            "description": "Required on every write: a cross-site form cannot send it."
+          }
+        ],
+        "requestBody": {
+          "description": "Why.",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Delete"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The judgment recording the deletion. Its `version` is null.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Judgment"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The change cannot be made as asked: the skill would break a rule (its frontmatter, a path, the cap), or a field is missing.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No token, or one this server did not issue, on a shared honed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "No `x-honed` header, a token that is not an admin's, or a local honed asked under another host name.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No skill has that name.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The skill is `honed/honer`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/skills/{name}/judge": {
+      "post": {
+        "operationId": "reviseSkill",
+        "summary": "Revise a skill now",
+        "description": "Has the judge consider the skill now, whatever feedback is waiting, rather than once enough arrives; the only way `honed/honer` is revised. Answers at once: the judgment appears in the skill's history when done. Needs an admin token.",
+        "tags": [
+          "writes"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "cookieAuth": []
+          },
+          {}
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "pattern": "^(?:[a-z0-9]+(?:-[a-z0-9]+)*\\/)?[a-z0-9]+(?:-[a-z0-9]+)*$"
+            },
+            "required": true,
+            "name": "name",
+            "in": "path",
+            "description": "The skill's name, with its group prefix if it has one: `git-commits`, `team/code-review`. The slash is not escaped."
+          },
+          {
+            "schema": {
+              "type": "string",
+              "enum": [
+                "1"
+              ]
+            },
+            "required": true,
+            "name": "x-honed",
+            "in": "header",
+            "description": "Required on every write: a cross-site form cannot send it."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The revision has started.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Revising"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The change cannot be made as asked: the skill would break a rule (its frontmatter, a path, the cap), or a field is missing.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No token, or one this server did not issue, on a shared honed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "No `x-honed` header, a token that is not an admin's, or a local honed asked under another host name.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No skill has that name.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "This server was started without a judge (`--judge off`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "webhooks": {}
+}

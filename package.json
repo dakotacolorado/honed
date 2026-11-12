@@ -1,6 +1,6 @@
 {
   "name": "@dakotajp/honed",
-  "version": "0.3.2",
+  "version": "0.3.3",
   "description": "Share and hone skills across your organization: an MCP server where agents get skills and submit feedback, and each skill is revised from it.",
   "keywords": [
     "mcp",
@@ -26,7 +26,9 @@
     "honed": "dist/cli.js"
   },
   "files": [
-    "dist"
+    "dist",
+    "docs",
+    "openapi.json"
   ],
   "engines": {
     "node": ">=24"
@@ -37,17 +39,22 @@
     "typecheck": "tsc --noEmit",
     "test": "node --test 'src/**/*.spec.ts'",
     "prepublishOnly": "npm run typecheck && npm test",
-    "prepack": "npm run build"
+    "prepack": "npm run build",
+    "spec": "node src/spec.ts && openapi-to-md openapi.json docs/API.md && redocly build-docs openapi.json -o docs/index.html",
+    "prepare": "git config core.hooksPath .githooks || true"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^1.7.0",
     "@hono/node-server": "2.1.6",
+    "@hono/zod-openapi": "1.6.3",
     "@modelcontextprotocol/sdk": "1.32.2",
     "hono": "4.13.17",
     "zod": "4.6.7"
   },
   "devDependencies": {
+    "@redocly/cli": "2.78.0",
     "@types/node": "26.6.6",
+    "openapi-to-md": "1.4.0",
     "typescript": "7.0.2"
   },
   "publishConfig": {

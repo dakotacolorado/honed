@@ -97,12 +97,19 @@ it is running**: agents connected without one get 401s until they send it.
 
 ## How it works
 
-One Node process serves the page, a small JSON API and MCP at `/mcp`. Skills live in a git repo under `~/.honed`
+One Node process serves the page, a small JSON API ([its docs](#the-api)) and MCP at `/mcp`. Skills live in a git repo under `~/.honed`
 (every version is a commit, so the library is readable and portable without honed), with SQLite alongside for
 feedback, tokens and full-text search. When feedback calls for it, Claude revises the skill (through Claude Code
 headless on a dev machine, or the Claude API on a server), with no tools: it reads the skill, the feedback and its own
 past reasoning, and answers with a new version or no change, as JSON against a fixed schema.
 The server checks every answer against the same rules as any skill, the cap included, before it keeps it.
+
+## The API
+
+The page reads skills, feedback and judgments through a small JSON API under `/api`, and an admin's edits, reverts and
+deletions go through it too. Anything else may use it the same way. Its contract is [`openapi.json`](./openapi.json),
+rendered in [`docs/API.md`](./docs/API.md); a running honed serves both at `/openapi.json` and `/docs/api`, with no
+token needed. Reads are `GET`s; every write is a `POST` with the `x-honed: 1` header and an admin token.
 
 ## Develop
 
@@ -112,7 +119,12 @@ npm run dev          # the server, from source
 npm test             # the reviser is faked, so no Claude is needed
 npm run typecheck
 npm run build
+npm run spec         # regenerates openapi.json and docs/ from the code; the pre-commit hook runs it
 ```
+
+`src/api.ts` declares every `/api` route, and is the source of `openapi.json`, `docs/API.md` and `docs/index.html`. A
+test fails if the committed contract differs from what honed serves, or if honed answers an `/api` route it does not
+declare.
 
 ## License
 
