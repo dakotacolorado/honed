@@ -3,6 +3,7 @@ import { mkdtemp, readFile, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, test } from "node:test";
+import { DatabaseSync } from "node:sqlite";
 import { Refusal, type DraftFile } from "./domain.ts";
 import { Hub } from "./hub.ts";
 import { render, type Case, type Decision, type Judge } from "./judge.ts";
@@ -10,6 +11,13 @@ import { render, type Case, type Decision, type Judge } from "./judge.ts";
 const skillMd = (name: string, body = "Do the thing.") => `---\nname: ${name.split("/").pop()}\ndescription: When to use ${name}.\n---\n\n${body}\n`;
 const draft = (name: string, body?: string): DraftFile[] => [{ path: "SKILL.md", content: skillMd(name, body) }];
 const noChange: Decision = { reasoning: "Not yet.", changed: false, note: "", write: [], remove: [], honer_feedback: "" };
+
+/** A report's quote, evidence and what changed, as a report on `skill` must carry them; nothing for a skill not made yet. */
+async function on(skill: string): Promise<{ skill: string; quote?: string; evidence?: { command: string; output: string }[]; whatChanged?: string }> {
+  const skillMd = (await hub.current(skill)).find((f) => f.path === "SKILL.md")?.content;
+  const quote = skillMd && /^description: .*$/m.exec(skillMd)?.[0];
+  return quote ? { skill, quote, evidence: [{ command: "npm test", output: "1 failing" }], whatChanged: "Ran it another way." } : { skill };
+}
 
 /** Decides as `decide` says, and keeps every case it was given. */
 class FakeJudge implements Judge {
@@ -51,7 +59,7 @@ afterEach(async () => {
 
 describe("feedback", () => {
   test("under a new name with a draft makes the skill, as a commit, with the feedback marked considered", async () => {
-    const { feedback: f } = await hub.submitFeedback({ skill: "code-review", text: "Reviews kept missing tests.", files: draft("code-review"), author: "reviewer" });
+    const { feedback: f } = await hub.submitFeedback({ ...(await on("code-review")), text: "Reviews kept missing tests.", files: draft("code-review"), author: "reviewer" });
     await hub.idle();
     assert.equal(hub.skill("code-review").version, 1);
     assert.equal(hub.list()[0]?.description, "When to use code-review.");
@@ -63,49 +71,124 @@ describe("feedback", () => {
   });
 
   test("a script keeps its executable bit", async () => {
-    await hub.submitFeedback({ skill: "lint", text: "t", files: [...draft("lint"), { path: "bin/run", content: "#!/bin/sh\necho ok\n", executable: true }] });
+    await hub.submitFeedback({ ...(await on("lint")), text: "t", files: [...draft("lint"), { path: "bin/run", content: "#!/bin/sh\necho ok\n", executable: true }] });
     await hub.idle();
     assert.equal((await hub.files("lint", 1)).find((f) => f.path === "bin/run")?.executable, true);
     assert.equal((await stat(join(hub.library.path("lint"), "bin/run"))).mode & 0o111, 0o111);
   });
 
   test("without a draft waits for a few more before the judge looks, and is judged at once on a skill not yet made", async () => {
-    await hub.submitFeedback({ skill: "x", text: "make it", files: draft("x") });
+    await hub.submitFeedback({ ...(await on("x")), text: "make it", files: draft("x") });
     await hub.idle();
     judge.cases = [];
     judge.decide_ = () => noChange;
-    await hub.submitFeedback({ skill: "x", text: "a" });
-    await hub.submitFeedback({ skill: "x", text: "b" });
+    await hub.submitFeedback({ ...(await on("x")), text: "a" });
+    await hub.submitFeedback({ ...(await on("x")), text: "b" });
     await hub.idle();
     assert.equal(judge.cases.length, 0);
-    await hub.submitFeedback({ skill: "x", text: "c" });
+    await hub.submitFeedback({ ...(await on("x")), text: "c" });
     await hub.idle();
     assert.equal(judge.cases.length, 1);
     assert.deepEqual(judge.cases[0]!.feedback.map((f) => f.text), ["a", "b", "c"]);
     assert.equal(hub.store.waiting("x").length, 0);
-    await hub.submitFeedback({ skill: "brand-new", text: "We need a skill for release notes." });
+    await hub.submitFeedback({ ...(await on("brand-new")), text: "We need a skill for release notes." });
     await hub.idle();
     assert.equal(judge.cases.at(-1)?.skill, "brand-new");
     assert.match(render(judge.cases.at(-1)!), /the skill does not exist yet/);
   });
 
   test("is refused without text, with a path outside the skill, or with a draft over the cap", async () => {
-    await assert.rejects(hub.submitFeedback({ skill: "x", text: " " }), /needs text/);
-    await assert.rejects(hub.submitFeedback({ skill: "Bad Name", text: "t" }), /lowercase/);
+    await assert.rejects(hub.submitFeedback({ ...(await on("x")), text: " " }), /no skill is named x yet: to ask for it, say in feedback what it is for/);
+    await assert.rejects(hub.submitFeedback({ ...(await on("Bad Name")), text: "t" }), /lowercase/);
     for (const path of ["../escape", "/etc/passwd", "a/../../b", ".git/config", "a//b"]) {
-      await assert.rejects(hub.submitFeedback({ skill: "x", text: "t", files: [{ path, content: "" }] }), Refusal, path);
+      await assert.rejects(hub.submitFeedback({ ...(await on("x")), text: "t", files: [{ path, content: "" }] }), Refusal, path);
     }
     hub.close();
     hub = await Hub.open(dir, judge, { maxChars: 1000, starters: false });
-    await assert.rejects(hub.submitFeedback({ skill: "x", text: "t", files: draft("x", "y".repeat(1000)) }), /over the cap of 1000/);
+    await assert.rejects(hub.submitFeedback({ ...(await on("x")), text: "t", files: draft("x", "y".repeat(1000)) }), /over the cap of 1000/);
+  });
+});
+
+describe("a report", () => {
+  const evidence = [{ path: "src/api.ts", content: "export function fetchUser() {}" }];
+  const make = async () => {
+    await hub.submitFeedback({ skill: "api", text: "make it", files: draft("api", "Call getUser() to load a user.") });
+    await hub.idle();
+  };
+
+  test("without evidence, or with evidence missing its half, is refused with what to include", async () => {
+    await make();
+    const base = { skill: "api", quote: "Call getUser() to load a user.", whatChanged: "Called fetchUser()." };
+    await assert.rejects(hub.submitFeedback(base), /needs evidence: a file path with the file's current contents, or a command you ran with what it actually printed/);
+    await assert.rejects(hub.submitFeedback({ ...base, evidence: [{ path: "src/api.ts" }] }), /include the file's current contents/);
+    await assert.rejects(hub.submitFeedback({ ...base, evidence: [{ command: "npm test", output: " " }] }), /include what the command actually printed/);
+    await assert.rejects(hub.submitFeedback({ ...base, evidence: [{}] }), /needs a path and the file's current contents, or a command/);
+    await assert.rejects(hub.submitFeedback({ ...base, evidence: [{ path: "a", content: "b", command: "c", output: "d" }] }), /not both/);
+    await assert.rejects(hub.submitFeedback({ ...base, evidence: [{ path: "a", content: "y".repeat(20_001) }] }), /keep only the lines/);
+    await assert.rejects(hub.submitFeedback({ ...base, evidence, whatChanged: "" }), /needs what_changed/);
+    assert.equal(hub.store.feedback("api").length, 1, "only the request that made it");
+  });
+
+  test("whose quote is not in the skill's current files is refused, saying to quote it exactly", async () => {
+    await make();
+    const base = { skill: "api", evidence, whatChanged: "Called fetchUser()." };
+    await assert.rejects(hub.submitFeedback(base), /needs quote: the exact text in the skill/);
+    await assert.rejects(hub.submitFeedback({ ...base, quote: "Call loadUser() to load a user." }), /this text is not in api as it is now \(v1\); get_skill it again and quote it exactly/);
+    await assert.rejects(hub.submitFeedback({ ...base, quote: "getUser" }), /too short/);
+    // Whitespace aside, word for word: a quote may wrap where the file does not.
+    await hub.submitFeedback({ ...base, quote: "Call getUser()\n  to load a user." });
+  });
+
+  test("that holds is stored with its quote, evidence and what changed, and the judge's case shows them", async () => {
+    await make();
+    judge.decide_ = () => noChange;
+    for (let i = 0; i < 3; i++) {
+      await hub.submitFeedback({ skill: "api", quote: "Call getUser() to load a user.", evidence: [...evidence, { command: "grep -r getUser src", output: "" + i }], whatChanged: "Called fetchUser().", text: "It was renamed in #41." });
+    }
+    await hub.idle();
+    const [f] = hub.store.feedback("api", 1);
+    assert.equal(f!.quote, "Call getUser() to load a user.");
+    assert.deepEqual(f!.evidence, [...evidence, { command: "grep -r getUser src", output: "2" }]);
+    assert.equal(f!.whatChanged, "Called fetchUser().");
+    const text = render(judge.cases.at(-1)!);
+    assert.match(text, /<quote>\nCall getUser\(\) to load a user\.\n<\/quote>/);
+    assert.match(text, /<evidence file="src\/api\.ts">\nexport function fetchUser\(\) \{\}\n<\/evidence>/);
+    assert.match(text, /<evidence command="grep -r getUser src">\n0\n<\/evidence>/);
+    assert.match(text, /<what_changed>\nCalled fetchUser\(\)\.\n<\/what_changed>/);
+    assert.match(text, /<also_said>\nIt was renamed in #41\.\n<\/also_said>/);
+  });
+
+  test("asking for a new skill takes a draft and no quote", async () => {
+    const { feedback: f } = await hub.submitFeedback({ skill: "new-one", text: "We keep needing this.", files: draft("new-one") });
+    assert.equal(f.quote, null);
+    assert.deepEqual(f.evidence, []);
+    await hub.idle();
+    assert.equal(hub.skill("new-one").version, 1);
+  });
+
+  test("a library made before reports had these fields opens, its old feedback read without them", async () => {
+    hub.close();
+    const old = await mkdtemp(join(tmpdir(), "honed-old-"));
+    try {
+      const db = new DatabaseSync(join(old, "honed.db"));
+      db.exec("CREATE TABLE feedback (id TEXT PRIMARY KEY, skill TEXT NOT NULL, version INTEGER NOT NULL, text TEXT NOT NULL, draft TEXT NOT NULL, author TEXT NOT NULL, at TEXT NOT NULL, judgment TEXT)");
+      db.exec("INSERT INTO feedback VALUES ('f1', 'x', 1, 'old words', '[]', 'someone', '2026-01-01T00:00:00.000Z', 'j1')");
+      db.close();
+      hub = await Hub.open(old, null, { starters: false });
+      assert.deepEqual(hub.store.feedback("x").map((f) => [f.text, f.quote, f.evidence, f.whatChanged]), [["old words", null, [], null]]);
+    } finally {
+      hub.close();
+      await rm(old, { recursive: true, force: true });
+      hub = await Hub.open(dir, judge, { starters: false });
+    }
   });
 });
 
 describe("the judge", () => {
   test("sees the skill, the waiting feedback with drafts, its precedent and the cap", async () => {
-    await hub.submitFeedback({ skill: "x", text: "make it", files: draft("x") });
+    await hub.submitFeedback({ ...(await on("x")), text: "make it", files: draft("x") });
     await hub.idle();
-    await hub.submitFeedback({ skill: "x", text: "Needs an example.", files: draft("x", "Example: do it."), author: "writer" });
+    await hub.submitFeedback({ ...(await on("x")), text: "Needs an example.", files: draft("x", "Example: do it."), author: "writer" });
     await hub.idle();
     const c = judge.cases.at(-1)!;
     assert.equal(c.version, 1);
@@ -124,7 +207,7 @@ describe("the judge", () => {
       c.failure
         ? { reasoning: "Condensed.", changed: true, note: "small", write: draft("x", "short"), remove: [], honer_feedback: "" } as Decision
         : { reasoning: "All of it.", changed: true, note: "big", write: [{ path: "SKILL.md", content: skillMd("x", "y".repeat(1000)), executable: false }], remove: [], honer_feedback: "" };
-    await hub.submitFeedback({ skill: "x", text: "make it", files: draft("x") });
+    await hub.submitFeedback({ ...(await on("x")), text: "make it", files: draft("x") });
     await hub.idle();
     assert.equal(judge.cases.length, 2);
     assert.match(judge.cases[1]!.failure!, /over the cap of 1000/);
@@ -133,7 +216,7 @@ describe("the judge", () => {
 
     judge.cases = [];
     judge.decide_ = () => ({ reasoning: "r", changed: true, note: "n", write: [{ path: "SKILL.md", content: "no frontmatter", executable: false }], remove: [], honer_feedback: "" });
-    await hub.submitFeedback({ skill: "x", text: "again", files: draft("x", "z") });
+    await hub.submitFeedback({ ...(await on("x")), text: "again", files: draft("x", "z") });
     await hub.idle();
     assert.equal(judge.cases.length, 3);
     assert.equal(hub.skill("x").version, 1);
@@ -142,15 +225,15 @@ describe("the judge", () => {
 
   test("saying it changed the skill with nothing written is refused", async () => {
     judge.decide_ = () => ({ ...noChange, changed: true });
-    await hub.submitFeedback({ skill: "x", text: "make it", files: draft("x") });
+    await hub.submitFeedback({ ...(await on("x")), text: "make it", files: draft("x") });
     await hub.idle();
     assert.match(hub.store.judgments("x")[0]!.error!, /wrote and removed nothing/);
   });
 
   test("a decision made while a person changed the skill is thrown away and the skill judged again", async () => {
-    await hub.submitFeedback({ skill: "x", text: "v1", files: draft("x", "one") });
+    await hub.submitFeedback({ ...(await on("x")), text: "v1", files: draft("x", "one") });
     await hub.idle();
-    await hub.submitFeedback({ skill: "x", text: "v2", files: draft("x", "two") });
+    await hub.submitFeedback({ ...(await on("x")), text: "v2", files: draft("x", "two") });
     await hub.idle();
     let release!: () => void;
     const gate = new Promise<void>((r) => (release = r));
@@ -158,7 +241,7 @@ describe("the judge", () => {
       if (c.version === 2) await gate;
       return takeDraft(c);
     };
-    await hub.submitFeedback({ skill: "x", text: "v3", files: draft("x", "three") });
+    await hub.submitFeedback({ ...(await on("x")), text: "v3", files: draft("x", "three") });
     await new Promise((r) => setTimeout(r, 10));
     const reverting = hub.revert("x", 1, "Two was wrong.");
     release();
@@ -173,12 +256,12 @@ describe("a person", () => {
   test("reverts a skill, recorded as theirs, and nothing else changes it without the judge", async () => {
     hub.close();
     hub = await Hub.open(dir, null, { starters: false });
-    await hub.submitFeedback({ skill: "x", text: "make it", files: draft("x") });
+    await hub.submitFeedback({ ...(await on("x")), text: "make it", files: draft("x") });
     assert.equal(hub.store.skill("x"), undefined);
     hub.close();
     hub = await Hub.open(dir, judge, { starters: false });
     await hub.idle();
-    await hub.submitFeedback({ skill: "x", text: "better", files: draft("x", "Better") });
+    await hub.submitFeedback({ ...(await on("x")), text: "better", files: draft("x", "Better") });
     await hub.idle();
     const j = await hub.revert("x", 1, "Better was not.", "dakota");
     assert.equal(j.by, "person");
@@ -192,7 +275,7 @@ describe("a person", () => {
 describe("search", () => {
   test("finds a skill by any word of its text, stemmed, best match first, and follows each new version", async () => {
     for (const [name, body] of [["git-commits", "Write subjects in the imperative."], ["release-notes", "Group merged changes by user-facing impact."], ["reviews", "Check that commits are split sensibly."]] as const) {
-      await hub.submitFeedback({ skill: name, text: "t", files: draft(name, body) });
+      await hub.submitFeedback({ ...(await on(name)), text: "t", files: draft(name, body) });
     }
     await hub.idle();
     const hits = hub.search("commit");
@@ -200,19 +283,19 @@ describe("search", () => {
     assert.match(hits[1]!.snippet, /«commits»/);
     assert.deepEqual(hub.search("merging").map((h) => h.name), ["release-notes"]);
     assert.deepEqual(hub.search("  "), []);
-    await hub.submitFeedback({ skill: "reviews", text: "t", files: draft("reviews", "Read the tests first.") });
+    await hub.submitFeedback({ ...(await on("reviews")), text: "t", files: draft("reviews", "Read the tests first.") });
     await hub.idle();
     assert.deepEqual(hub.search("commit").map((h) => h.name), ["git-commits"]);
   });
 });
 
 test("a server reopened on the same folder keeps everything, judges what was waiting, and fails what it left running", async () => {
-  await hub.submitFeedback({ skill: "x", text: "make it", files: draft("x") });
+  await hub.submitFeedback({ ...(await on("x")), text: "make it", files: draft("x") });
   await hub.idle();
   hub.store.putJudgment({ id: "stuck", skill: "x", by: "judge", actor: null, state: "running", startedAt: "2026-01-01T00:00:00.000Z", finishedAt: null, changed: null, reasoning: "", error: null, version: null });
   hub.close();
   hub = await Hub.open(dir, null, { starters: false });
-  await hub.submitFeedback({ skill: "x", text: "waiting", files: draft("x", "next") });
+  await hub.submitFeedback({ ...(await on("x")), text: "waiting", files: draft("x", "next") });
   hub.close();
   hub = await Hub.open(dir, judge, { starters: false });
   await hub.idle();
@@ -249,12 +332,12 @@ describe("starters", () => {
     const fresh = await mkdtemp(join(tmpdir(), "honed-starters-"));
     try {
       hub = await Hub.open(fresh, judge);
-      await hub.submitFeedback({ skill: "x", text: "make it", files: draft("x") });
+      await hub.submitFeedback({ ...(await on("x")), text: "make it", files: draft("x") });
       await hub.idle();
       assert.match(judge.cases.at(-1)!.guidance, /Weigh the evidence/);
       judge.cases = [];
-      await hub.submitFeedback({ skill: "honed/honer", text: "Be stricter about scripts.", files: [{ path: "SKILL.md", content: skillMd("honed/honer", "Stricter.") }] });
-      for (let i = 0; i < 3; i++) await hub.submitFeedback({ skill: "honed/honer", text: `more ${i}` });
+      await hub.submitFeedback({ ...(await on("honed/honer")), text: "Be stricter about scripts.", files: [{ path: "SKILL.md", content: skillMd("honed/honer", "Stricter.") }] });
+      for (let i = 0; i < 3; i++) await hub.submitFeedback({ ...(await on("honed/honer")), text: `more ${i}` });
       await hub.idle();
       assert.equal(judge.cases.length, 0);
       assert.equal(hub.skill("honed/honer").version, 1);
@@ -273,12 +356,12 @@ describe("starters", () => {
 
 describe("prefixes", () => {
   test("group skills under one optional prefix, and a SKILL.md names only the part after it", async () => {
-    await hub.submitFeedback({ skill: "team/deploys", text: "make it", files: draft("team/deploys") });
+    await hub.submitFeedback({ ...(await on("team/deploys")), text: "make it", files: draft("team/deploys") });
     await hub.idle();
     assert.equal(hub.skill("team/deploys").version, 1);
     assert.match((await hub.current("team/deploys"))[0]!.content, /^---\nname: deploys\n/);
     assert.ok((await hub.library.files("team/deploys", hub.store.versions("team/deploys")[0]!.commit)).length === 1);
-    for (const bad of ["a/b/c", "/x", "x/", "Team/x", "a//b"]) await assert.rejects(hub.submitFeedback({ skill: bad, text: "t" }), /optionally under one prefix/, bad);
+    for (const bad of ["a/b/c", "/x", "x/", "Team/x", "a//b"]) await assert.rejects(hub.submitFeedback({ ...(await on(bad)), text: "t" }), /optionally under one prefix/, bad);
     await assert.rejects(
       hub.edit("team/deploys", { write: [{ path: "SKILL.md", content: "---\nname: team/deploys\ndescription: d\n---\n" }] }, ""),
       /must say name: deploys \(the part after team\/, since Claude Code's skill names have no slash\)/,
@@ -305,21 +388,21 @@ describe("the reviewer's fixes", () => {
   });
 
   test("feedback says what will happen to it: revising, waiting for more, an admin, or nothing", async () => {
-    assert.deepEqual((await hub.submitFeedback({ skill: "x", text: "make it", files: draft("x") })).next, { kind: "revising" });
+    assert.deepEqual((await hub.submitFeedback({ ...(await on("x")), text: "make it", files: draft("x") })).next, { kind: "revising" });
     await hub.idle();
     judge.decide_ = () => noChange;
-    assert.deepEqual((await hub.submitFeedback({ skill: "x", text: "a" })).next, { kind: "waiting", more: 2 });
-    assert.deepEqual((await hub.submitFeedback({ skill: "x", text: "b" })).next, { kind: "waiting", more: 1 });
-    assert.deepEqual((await hub.submitFeedback({ skill: "x", text: "c" })).next, { kind: "revising" });
-    assert.deepEqual((await hub.submitFeedback({ skill: "honed/honer", text: "stricter" })).next, { kind: "admin" });
+    assert.deepEqual((await hub.submitFeedback({ ...(await on("x")), text: "a" })).next, { kind: "waiting", more: 2 });
+    assert.deepEqual((await hub.submitFeedback({ ...(await on("x")), text: "b" })).next, { kind: "waiting", more: 1 });
+    assert.deepEqual((await hub.submitFeedback({ ...(await on("x")), text: "c" })).next, { kind: "revising" });
+    assert.deepEqual((await hub.submitFeedback({ ...(await on("honed/honer")), text: "stricter" })).next, { kind: "admin" });
     await hub.idle();
     hub.close();
     hub = await Hub.open(dir, null, { starters: false });
-    assert.deepEqual((await hub.submitFeedback({ skill: "x", text: "d" })).next, { kind: "off" });
+    assert.deepEqual((await hub.submitFeedback({ ...(await on("x")), text: "d" })).next, { kind: "off" });
   });
 
   test("a person edits a skill's files as a new version, keeping a script's executable bit, within the cap", async () => {
-    await hub.submitFeedback({ skill: "x", text: "make it", files: [...draft("x"), { path: "run.sh", content: "#!/bin/sh\n", executable: true }] });
+    await hub.submitFeedback({ ...(await on("x")), text: "make it", files: [...draft("x"), { path: "run.sh", content: "#!/bin/sh\n", executable: true }] });
     await hub.idle();
     const j = await hub.edit("x", { write: [{ path: "run.sh", content: "#!/bin/sh\necho fixed\n" }] }, "Fix a typo.", "dakota");
     assert.equal(j.actor, "dakota");
@@ -332,9 +415,9 @@ describe("the reviewer's fixes", () => {
   });
 
   test("a person deletes a skill: gone from the library and search, history kept, waiting feedback closed, and a skill made again continues its versions", async () => {
-    await hub.submitFeedback({ skill: "typo-skil", text: "make it", files: draft("typo-skil", "unique-word") });
+    await hub.submitFeedback({ ...(await on("typo-skil")), text: "make it", files: draft("typo-skil", "unique-word") });
     await hub.idle();
-    await hub.submitFeedback({ skill: "typo-skil", text: "waiting" });
+    await hub.submitFeedback({ ...(await on("typo-skil")), text: "waiting" });
     const j = await hub.delete("typo-skil", "Misspelled.", "dakota");
     assert.equal(j.version, null);
     assert.equal(hub.store.skill("typo-skil"), undefined);
@@ -342,7 +425,7 @@ describe("the reviewer's fixes", () => {
     assert.equal(hub.store.waiting("typo-skil").length, 0);
     assert.equal(hub.store.versions("typo-skil").length, 1);
     await assert.rejects(hub.delete("honed/honer", ""), /cannot be deleted|no skill/);
-    await hub.submitFeedback({ skill: "typo-skil", text: "again", files: draft("typo-skil") });
+    await hub.submitFeedback({ ...(await on("typo-skil")), text: "again", files: draft("typo-skil") });
     await hub.idle();
     assert.equal(hub.skill("typo-skil").version, 2);
   });
@@ -355,7 +438,7 @@ describe("the honer's own guidance", () => {
     try {
       hub = await Hub.open(fresh, judge);
       judge.decide_ = (c) => ({ ...takeDraft(c), honer_feedback: `Nothing said how to weigh drafts for ${c.skill}.` });
-      await hub.submitFeedback({ skill: "team/deploys", text: "make it", files: draft("team/deploys") });
+      await hub.submitFeedback({ ...(await on("team/deploys")), text: "make it", files: draft("team/deploys") });
       await hub.idle();
       const onHoner = hub.store.waiting("honed/honer");
       assert.equal(onHoner.length, 1);
@@ -363,7 +446,7 @@ describe("the honer's own guidance", () => {
       assert.match(onHoner[0]!.text, /weigh drafts for team\/deploys/);
       assert.equal(judge.cases.at(-1)!.writingGuide?.startsWith("# Writing a new skill"), true, "a new skill is held to honed/skill-writing");
 
-      await hub.submitFeedback({ skill: "honed/honer", text: "Say what to do with contradicting drafts.", files: draft("honed/honer", "Prefer the draft with evidence.") });
+      await hub.submitFeedback({ ...(await on("honed/honer")), text: "Say what to do with contradicting drafts.", files: draft("honed/honer", "Prefer the draft with evidence.") });
       await hub.idle();
       assert.equal(hub.skill("honed/honer").version, 1, "waits for an admin");
       hub.judgeNow("honed/honer");

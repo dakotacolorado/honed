@@ -1,5 +1,5 @@
 import { DatabaseSync } from "node:sqlite";
-import type { DraftFile, Feedback, Judgment, Skill, Version } from "./domain.ts";
+import type { DraftFile, Evidence, Feedback, Judgment, Skill, Version } from "./domain.ts";
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS skills (name TEXT PRIMARY KEY, version INTEGER NOT NULL, created_at TEXT NOT NULL);
@@ -21,6 +21,13 @@ CREATE TABLE IF NOT EXISTS tokens (name TEXT PRIMARY KEY, hash TEXT NOT NULL UNI
 CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
 CREATE VIRTUAL TABLE IF NOT EXISTS search USING fts5(name, description, body, tokenize = 'porter unicode61');
 `;
+
+/** Columns added since a table was first made, each added to a library made before it. */
+const COLUMNS: { table: string; column: string; definition: string }[] = [
+  { table: "feedback", column: "quote", definition: "TEXT" },
+  { table: "feedback", column: "evidence", definition: "TEXT NOT NULL DEFAULT '[]'" },
+  { table: "feedback", column: "what_changed", definition: "TEXT" },
+];
 
 export interface Token {
   name: string;
@@ -61,6 +68,9 @@ const feedback = (r: Row): Feedback => ({
   skill: s(r.skill),
   version: n(r.version),
   text: s(r.text),
+  quote: sn(r.quote),
+  evidence: JSON.parse(s(r.evidence ?? "[]")) as Evidence[],
+  whatChanged: sn(r.what_changed),
   draft: JSON.parse(s(r.draft)) as DraftFile[],
   author: s(r.author),
   at: s(r.at),
@@ -89,6 +99,10 @@ export class Store {
     this.db = new DatabaseSync(path);
     this.db.exec("PRAGMA journal_mode = WAL;");
     this.db.exec(SCHEMA);
+    for (const { table, column, definition } of COLUMNS) {
+      const has = (this.db.prepare(`PRAGMA table_info(${table})`).all() as Row[]).some((r) => r.name === column);
+      if (!has) this.db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
+    }
   }
 
   close() {
@@ -155,11 +169,14 @@ export class Store {
   }
   addFeedback(f: Feedback): void {
     this.run(
-      "INSERT INTO feedback (id, skill, version, text, draft, author, at, judgment) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+      "INSERT INTO feedback (id, skill, version, text, quote, evidence, what_changed, draft, author, at, judgment) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
       f.id,
       f.skill,
       f.version,
       f.text,
+      f.quote,
+      JSON.stringify(f.evidence),
+      f.whatChanged,
       JSON.stringify(f.draft),
       f.author,
       f.at,

@@ -7,7 +7,7 @@ import type { Hub } from "./hub.ts";
 export const INSTRUCTIONS = `honed is your organization's shared skills library, and it improves from your feedback.
 
 - Before a task, search_skills for what it is about (or list_skills), and get_skill any whose description fits. Follow what you read.
-- After using a skill, submit_feedback only when it fell short: it was wrong, it left out something you had to find out, or a person or a check corrected you on what it covers. Be concrete: the correction, the error, or what you did instead, and what the skill should say. If it simply worked, or your advice is something any capable agent does anyway, send nothing. Include files when you know the exact fix. Never include secrets or personal details.
+- After using a skill, submit_feedback only when it fell short: it was wrong, it left out something you had to find out, or a person or a check corrected you on what it covers. Quote the skill's text it is about exactly, show the evidence (a file as it is now, or a command and what it printed), and say what you did instead. If it simply worked, or your advice is something any capable agent does anyway, send nothing. Include files when you know the exact fix. Never include secrets or personal details.
 - To add a skill, read honed/skill-writing first, then submit_feedback under the new name with a draft of its ${SKILL_FILE}.`;
 
 const text = (value: unknown) => ({ content: [{ type: "text" as const, text: typeof value === "string" ? value : JSON.stringify(value, null, 2) }] });
@@ -80,10 +80,23 @@ export function mcpServer(hub: Hub, version: string, caller: Caller, local: bool
     "submit_feedback",
     {
       title: "Submit feedback on a skill",
-      description: `Where a skill fell short, and what it should say: the task, what the skill said, what went wrong or what you had to find out, and the evidence (a correction, an error, a reviewer's comment). Not for a skill that simply worked. Include files to suggest exact text. Under a name no skill has yet, it asks for that skill: follow honed/skill-writing and draft its ${SKILL_FILE}. Skills are revised from this feedback.`,
+      description: `Report where a skill's text is wrong or falls short: quote that text exactly, show the evidence, and say what you did instead. A report missing any of these, or quoting text the skill does not have, is refused with how to fix it; resubmit it fixed. Not for a skill that simply worked. Include files to suggest exact text. Under a name no skill has yet, it asks for that skill: say what it is for in feedback, follow honed/skill-writing and draft its ${SKILL_FILE}; no quote is needed. Skills are revised from these reports.`,
       inputSchema: {
         name: z.string().describe("The skill, e.g. team/code-review: an optional prefix for its group, then lowercase letters, digits and hyphens."),
-        feedback: z.string().describe("What happened in your work, and what should change."),
+        quote: z.string().optional().describe("The exact text in the skill that is wrong or falls short, copied from get_skill: a whole sentence or line. Not needed for a new skill."),
+        evidence: z
+          .array(
+            z.object({
+              path: z.string().optional().describe("A file that shows the quote is wrong, e.g. src/api.ts."),
+              content: z.string().optional().describe("That file's current contents, or the part that shows it."),
+              command: z.string().optional().describe("A command you ran, e.g. npm run lint."),
+              output: z.string().optional().describe("What the command actually printed."),
+            }),
+          )
+          .optional()
+          .describe("What shows the quote is wrong: each a file with its current contents, or a command with what it printed. Not needed for a new skill."),
+        what_changed: z.string().optional().describe("What you did instead of what the quote says, or what you changed that it describes. Not needed for a new skill."),
+        feedback: z.string().optional().describe("Anything else worth knowing. For a new skill: what it is for."),
         files: z
           .array(z.object({ path: z.string(), content: z.string(), executable: z.boolean().optional() }))
           .optional()
@@ -91,9 +104,9 @@ export function mcpServer(hub: Hub, version: string, caller: Caller, local: bool
         author: z.string().optional().describe("Your role or task, e.g. reviewer on PR 12."),
       },
     },
-    ({ name, feedback, files, author }) =>
+    ({ name, quote, evidence, what_changed, feedback, files, author }) =>
       answer(async () => {
-        const { next } = await hub.submitFeedback({ skill: name, text: feedback, files, author: authorOf(caller, local, author) });
+        const { next } = await hub.submitFeedback({ skill: name, quote, evidence, whatChanged: what_changed, text: feedback, files, author: authorOf(caller, local, author) });
         if (next.kind === "off") return "Recorded. Revision is off on this server, so it will be read by a person.";
         if (next.kind === "admin") return `Recorded. ${name} is revised only when an admin asks; your feedback will be there when they do.`;
         if (next.kind === "waiting") return `Recorded. ${name} is revised once ${next.more} more piece${next.more === 1 ? "" : "s"} of feedback arrive, or sooner if someone includes a draft.`;

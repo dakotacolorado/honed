@@ -16,6 +16,12 @@ export const FEEDBACK_BATCH = 3;
 export const JUDGMENT_ATTEMPTS = 3;
 /** Past judgments on a skill the judge is shown, to stay consistent with itself. */
 export const PRECEDENT = 5;
+/** The fewest characters a quote may have: a fragment matches too much to say which text is wrong. */
+export const MIN_QUOTE = 10;
+/** The most a report's evidence may hold, all of it together. */
+export const MAX_EVIDENCE = 20_000;
+/** The most pieces of evidence one report may carry. */
+export const MAX_EVIDENCE_ITEMS = 5;
 
 export interface SkillFile {
   path: string;
@@ -45,12 +51,22 @@ export interface Version {
   at: string;
 }
 
+/** What shows a skill's text is wrong: a file as it is now, or a command and what it printed. */
+export type Evidence = { path: string; content: string } | { command: string; output: string };
+
 export interface Feedback {
   id: string;
   skill: string;
   /** The version it was about; 0 for a skill that did not exist yet. */
   version: number;
+  /** Anything else the agent said; for a new skill, what it is for. */
   text: string;
+  /** The exact text of the skill the report is about, found in that version's files; null for a new skill or the honer's own notes. */
+  quote: string | null;
+  /** What shows the quote is wrong; empty when there is no quote. */
+  evidence: Evidence[];
+  /** What the agent did instead of what the quote says, or what it changed; null when there is no quote. */
+  whatChanged: string | null;
   /** Files the agent drafted, if any. */
   draft: DraftFile[];
   author: string;
@@ -176,3 +192,9 @@ export function checkSkill(name: string, files: SkillFile[], maxChars: number): 
   const size = textSize(files);
   if (size > maxChars) throw new Refusal(`the skill would hold ${size} characters, over the cap of ${maxChars}: condense it to make room`);
 }
+
+/** Text with every run of whitespace made one space, so a quote matches across line breaks and indentation. */
+export const squash = (text: string) => text.replace(/\s+/g, " ").trim();
+
+/** Whether `quote` appears word for word in any of `files`, whitespace aside. */
+export const quoted = (quote: string, files: { content: string }[]) => files.some((f) => squash(f.content).includes(squash(quote)));
