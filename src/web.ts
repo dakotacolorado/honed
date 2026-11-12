@@ -4,6 +4,7 @@ import { readFileSync } from "node:fs";
 import type { Context, Handler } from "hono";
 import { deleteCookie, getCookie, setCookie } from "hono/cookie";
 import { html, raw } from "hono/html";
+import { getPath } from "hono/utils/url";
 import type { HtmlEscapedString } from "hono/utils/html";
 import { COOKIE, deleteRoute, describeApi, editRoute, getJudgmentRoute, getSkillRoute, honoPath, judgeRoute, limitRoute, listSkillsRoute, previewRoute, revertRoute, WRITE_HEADER } from "./api.ts";
 import { callerOf } from "./auth.ts";
@@ -550,10 +551,13 @@ const originOf = (c: Context) => {
   return c.req.header("x-forwarded-proto") === "https" ? `https://${url.host}` : url.origin;
 };
 
+/** A request's path, with a skill name's slash also accepted escaped (`/api/skills/team%2Fdeploys`), as a client that encodes a name whole sends it. */
+const skillPath = (req: Request) => getPath(req).replace(/^(\/(?:api\/)?skills\/[a-z0-9-]+)%2F/i, "$1/");
+
 const field = (body: Record<string, unknown>, key: string) => (typeof body[key] === "string" ? (body[key] as string) : "");
 
 export function app(hub: Hub, version: string, opts: AppOptions = {}): OpenAPIHono<Env> {
-  const web = new OpenAPIHono<Env>();
+  const web = new OpenAPIHono<Env>({ getPath: skillPath });
   /** Answers at a route declared in `api.ts`, and puts it in the contract; the handler reads the request as it always has. */
   const declare = (route: RouteConfig, handler: Handler<Env>) => {
     web.openAPIRegistry.registerPath(route);

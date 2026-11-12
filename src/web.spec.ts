@@ -316,6 +316,26 @@ describe("a server with tokens", () => {
     assert.equal(page.headers.get("location"), "/login");
   });
 
+  test("serves one skill by name, its slash plain or escaped, with its version and files, to any token", async () => {
+    const client = await connect(s.base, agent);
+    await call(client, "submit_feedback", { name: "team/runbook", feedback: "make it", files: [{ path: "SKILL.md", content: "---\nname: runbook\ndescription: Running it.\n---\n" }, { path: "check.sh", content: "#!/bin/sh\n", executable: true }] });
+    await client.close();
+    await s.hub.idle();
+    const auth = { authorization: `Bearer ${agent}` };
+    for (const path of ["team/runbook", "team%2Frunbook", "team%2frunbook"]) {
+      const res = await fetch(`${s.base}/api/skills/${path}`, { headers: auth });
+      assert.equal(res.status, 200, path);
+      const skill = (await res.json()) as { name: string; version: number; files: { path: string; content: string; executable: boolean }[] };
+      assert.equal(skill.name, "team/runbook");
+      assert.equal(skill.version, 1);
+      assert.deepEqual(Object.fromEntries(skill.files.map((f) => [f.path, f.executable])), { "SKILL.md": false, "check.sh": true });
+    }
+    const unknown = await fetch(`${s.base}/api/skills/team%2Fnone`, { headers: auth });
+    assert.equal(unknown.status, 404);
+    assert.match(((await unknown.json()) as { error: string }).error, /no skill is named team\/none/);
+    assert.equal((await fetch(`${s.base}/api/skills/team%2Frunbook`)).status, 401);
+  });
+
   test("answers any hostname once it has tokens, since every request must carry one", async () => {
     assert.equal(await statusWithHost(s.base, "honed.example.com"), 401);
   });

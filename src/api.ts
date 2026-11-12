@@ -146,7 +146,7 @@ const FileChangeSchema = z
 const param = (schema: z.ZodType, name: string, at: "path" | "query" | "header", description: string) => schema.openapi({ param: { name, in: at, description } });
 const NAME = /^(?:[a-z0-9]+(?:-[a-z0-9]+)*\/)?[a-z0-9]+(?:-[a-z0-9]+)*$/;
 const NameParam = z.object({
-  name: param(z.string().regex(NAME), "name", "path", "The skill's name, with its group prefix if it has one: `git-commits`, `team/code-review`. The slash is not escaped."),
+  name: param(z.string().regex(NAME), "name", "path", "The skill's name, with its group prefix if it has one: `git-commits`, `team/code-review`. Its slash may be plain or escaped as `%2F`."),
 });
 const WriteHeaders = z.object({
   [WRITE_HEADER]: param(z.literal("1"), WRITE_HEADER, "header", "Required on every write: a cross-site form cannot send it."),

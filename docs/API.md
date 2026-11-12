@@ -1,6 +1,6 @@
 # honed
 
-> Version 0.3.10
+> Version 0.3.11
 
 honed keeps your organization's skills: the instructions coding agents read before a task, such as how a team writes commits or reviews code. When a skill turns out to be wrong, the agent that hit it reports it, and honed revises the skill from those reports, keeping every version and why it changed.
 
@@ -155,7 +155,7 @@ limit?: integer //default: 20
 #### Parameters(Path)
 
 ```typescript
-// The skill's name, with its group prefix if it has one: `git-commits`, `team/code-review`. The slash is not escaped.
+// The skill's name, with its group prefix if it has one: `git-commits`, `team/code-review`. Its slash may be plain or escaped as `%2F`.
 name: string //pattern: ^(?:[a-z0-9]+(?:-[a-z0-9]+)*\/)?[a-z0-9]+(?:-[a-z0-9]+)*$
 ```
 
@@ -402,7 +402,7 @@ id: string
 #### Parameters(Path)
 
 ```typescript
-// The skill's name, with its group prefix if it has one: `git-commits`, `team/code-review`. The slash is not escaped.
+// The skill's name, with its group prefix if it has one: `git-commits`, `team/code-review`. Its slash may be plain or escaped as `%2F`.
 name: string //pattern: ^(?:[a-z0-9]+(?:-[a-z0-9]+)*\/)?[a-z0-9]+(?:-[a-z0-9]+)*$
 ```
 
@@ -527,7 +527,7 @@ The version to revert to.
 #### Parameters(Path)
 
 ```typescript
-// The skill's name, with its group prefix if it has one: `git-commits`, `team/code-review`. The slash is not escaped.
+// The skill's name, with its group prefix if it has one: `git-commits`, `team/code-review`. Its slash may be plain or escaped as `%2F`.
 name: string //pattern: ^(?:[a-z0-9]+(?:-[a-z0-9]+)*\/)?[a-z0-9]+(?:-[a-z0-9]+)*$
 ```
 
@@ -667,7 +667,7 @@ The file to write, or the one to remove.
 #### Parameters(Path)
 
 ```typescript
-// The skill's name, with its group prefix if it has one: `git-commits`, `team/code-review`. The slash is not escaped.
+// The skill's name, with its group prefix if it has one: `git-commits`, `team/code-review`. Its slash may be plain or escaped as `%2F`.
 name: string //pattern: ^(?:[a-z0-9]+(?:-[a-z0-9]+)*\/)?[a-z0-9]+(?:-[a-z0-9]+)*$
 ```
 
@@ -778,7 +778,7 @@ The file to write, or the one to remove.
 #### Parameters(Path)
 
 ```typescript
-// The skill's name, with its group prefix if it has one: `git-commits`, `team/code-review`. The slash is not escaped.
+// The skill's name, with its group prefix if it has one: `git-commits`, `team/code-review`. Its slash may be plain or escaped as `%2F`.
 name: string //pattern: ^(?:[a-z0-9]+(?:-[a-z0-9]+)*\/)?[a-z0-9]+(?:-[a-z0-9]+)*$
 ```
 
@@ -888,7 +888,7 @@ The limit to set.
 #### Parameters(Path)
 
 ```typescript
-// The skill's name, with its group prefix if it has one: `git-commits`, `team/code-review`. The slash is not escaped.
+// The skill's name, with its group prefix if it has one: `git-commits`, `team/code-review`. Its slash may be plain or escaped as `%2F`.
 name: string //pattern: ^(?:[a-z0-9]+(?:-[a-z0-9]+)*\/)?[a-z0-9]+(?:-[a-z0-9]+)*$
 ```
 
@@ -1022,7 +1022,7 @@ Why.
 #### Parameters(Path)
 
 ```typescript
-// The skill's name, with its group prefix if it has one: `git-commits`, `team/code-review`. The slash is not escaped.
+// The skill's name, with its group prefix if it has one: `git-commits`, `team/code-review`. Its slash may be plain or escaped as `%2F`.
 name: string //pattern: ^(?:[a-z0-9]+(?:-[a-z0-9]+)*\/)?[a-z0-9]+(?:-[a-z0-9]+)*$
 ```
 
