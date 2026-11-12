@@ -8,7 +8,10 @@ test("says what honed is, where it is, and the one command to connect", () => {
   const text = banner(info);
   assert.ok(text.includes(WORDMARK));
   assert.match(text, /v1\.2\.3/);
-  assert.match(text, /claude plugin marketplace add dakotacolorado\/honed\n  claude plugin install honed@honed\n/);
+  assert.match(text, /commit this as its \.mcp\.json/);
+  assert.match(text, /"url": "http:\/\/127\.0\.0\.1:4321\/mcp"/);
+  assert.match(text, /"Authorization": "Bearer \$\{HONED_TOKEN\}"/);
+  assert.doesNotMatch(text, /plugin/);
   assert.match(text, /agents use a skill, say how it went, and honed revises it\./);
   assert.doesNotMatch(text, /every version is kept/);
   assert.match(text, /Local only/);
@@ -20,7 +23,7 @@ test("points at the API's docs", () => {
 
 test("names the token header once tokens exist, and has no color codes unless asked", () => {
   const text = banner({ ...info, tokens: 2 });
-  assert.match(text, /\/plugin configure honed@honed/);
+  assert.match(text, /set HONED_TOKEN to your token in your environment/);
   assert.match(text, /2 tokens: every request needs one/);
   assert.doesNotMatch(text, /\x1b\[/);
   assert.match(banner({ ...info, color: true }), /\x1b\[38;5;37m/);

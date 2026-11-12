@@ -6,10 +6,10 @@ description: Use before creating a new skill for this library, to draft one that
 # Writing a new skill
 
 ## Check it's needed
-`search_skills` for the job first. If a skill already covers it, give feedback on that one instead of starting another.
+`search_skills` for the job first. If a skill already covers it, report on that one instead of starting another.
 
 ## Name and describe it
-- One job per skill, named for it: lowercase and hyphenated, under a prefix for its group if your library uses them (`team/deploys`).
+- One job per skill, named for it: lowercase and hyphenated, under the namespace of the repo it is for, or a shared one (`team/deploys`). A skill outside your repo's namespaces is one its sessions can't see.
 - The `description` is how agents find it. Say when to use it, in one sentence an agent can match against a task: "Use when …, to …".
 - In `SKILL.md`'s frontmatter, `name` is the part after the prefix (`deploys`).
 
@@ -19,7 +19,8 @@ description: Use before creating a new skill for this library, to draft one that
 - It should hold for every task it's used for. A fact about one project belongs with that project, not in a shared skill.
 - One precise rule beats three cautious ones. Every line should change what an agent does.
 - Add an example where a rule is easy to misread, and nothing else.
-- Start small. It will grow from the feedback of agents that use it; it doesn't need to be complete on day one.
+- Write facts (names, commands, paths) one to a bullet. An agent that finds one wrong reports it by quoting it, and it is fixed alone.
+- Start small. It will grow from the reports of agents that use it; it doesn't need to be complete on day one.
 
 ## Scripts and files
 Add a script only when it does something guidance can't, and nothing beyond what the skill needs. Never put secrets, tokens, or personal details in a skill.

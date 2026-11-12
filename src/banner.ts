@@ -1,3 +1,4 @@
+import { mcpJson } from "./mcp.ts";
 import { homedir } from "node:os";
 
 const LETTERS = [
@@ -52,7 +53,7 @@ export function palette(enabled: boolean) {
   return { edge: paint("38;5;37"), bold: paint("1"), dim: paint("2"), green: paint("38;5;108") };
 }
 
-/** Where the plugin looks for honed unless told otherwise. */
+/** Where honed listens unless told otherwise. */
 export const DEFAULT_URL = "http://127.0.0.1:4321";
 
 const tilde = (path: string) => (path.startsWith(homedir()) ? `~${path.slice(homedir().length)}` : path);
@@ -82,10 +83,9 @@ export function banner(b: BannerInfo): string {
     `  ${c.edge("▸")} API       ${b.url}/api/skills   docs ${b.url}/docs/api`,
     `  ${c.edge("▸")} Stored    ${tilde(b.dir)}`,
     "",
-    c.bold("Connect Claude Code (once), with the honed plugin:"),
-    `  claude plugin marketplace add dakotacolorado/honed`,
-    `  claude plugin install honed@honed${b.url === DEFAULT_URL ? "" : ` --config url=${b.url}`}`,
-    ...(b.tokens ? [`  then /plugin configure honed@honed in a session, to give it your token`] : []),
+    c.bold("Connect a repo's Claude Code sessions: commit this as its .mcp.json, with the namespaces it uses:"),
+    ...mcpJson(b.url, ["your-project"]).split("\n").map((line) => `  ${line}`),
+    b.tokens ? `  and set HONED_TOKEN to your token in your environment.` : `  and set HONED_TOKEN in your environment (any value: this honed has no tokens yet).`,
     "",
 
     `  ${c.dim(b.reviser)}`,

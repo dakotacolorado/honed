@@ -7,12 +7,12 @@ import { html, raw } from "hono/html";
 import type { HtmlEscapedString } from "hono/utils/html";
 import { COOKIE, deleteRoute, describeApi, editRoute, getJudgmentRoute, getSkillRoute, honoPath, judgeRoute, limitRoute, listSkillsRoute, previewRoute, revertRoute, WRITE_HEADER } from "./api.ts";
 import { callerOf } from "./auth.ts";
-import { DEFAULT_URL, LETTERS_ONLY, SUMMARY, SWORD_PIXELS, TAGLINE } from "./banner.ts";
+import { LETTERS_ONLY, SUMMARY, SWORD_PIXELS, TAGLINE } from "./banner.ts";
 import { baseName, HONER_SKILL, reportName, NAMESPACES_HEADER, parseNamespaces, Scope, LOCAL_CALLER, NAME_ROUTE, prefixOf, Refusal, SKILL_FILE, type Caller, type Feedback, type Judgment } from "./domain.ts";
 import { parseDiff } from "./diffview.ts";
 import { renderMarkdown, withoutFrontmatter } from "./markdown.ts";
 import type { Hub, SkillSummary } from "./hub.ts";
-import { mcpServer } from "./mcp.ts";
+import { mcpJson, mcpServer } from "./mcp.ts";
 
 type Html = HtmlEscapedString | Promise<HtmlEscapedString>;
 
@@ -323,10 +323,9 @@ function chips(skills: SkillSummary[], current: string): Html {
 
 function connect(origin: string, viewer: Viewer, open: boolean, inline = false): Html {
   return html`<details class="${inline ? "" : "card"} connect" ${open ? "open" : ""}><summary>${inline ? "connect Claude Code" : "Connect Claude Code"}</summary>
-    <p class="small ${open && !inline ? "" : "muted"}">${open && !inline ? "honed is running, and no agent has connected yet. " : ""}Install the honed plugin, once. It connects every Claude Code session to this library, and asks each one for feedback on the skills it used.</p>
-    <pre class="cmd">claude plugin marketplace add dakotacolorado/honed
-claude plugin install honed@honed${origin === DEFAULT_URL ? "" : ` --config url=${origin}`}</pre>
-    ${viewer.local ? "" : html`<p class="small muted">Then <code>/plugin configure honed@honed</code> in a session to give it your token.</p>`}
+    <p class="small ${open && !inline ? "" : "muted"}">${open && !inline ? "honed is running, and no agent has connected yet. " : ""}Commit this <code>.mcp.json</code> at a repo's root, with the namespaces it uses in <code>X-Honed-Namespaces</code>: its own, plus any shared ones. Every Claude Code session in the repo then sees those skills, and nothing else needs installing.</p>
+    <pre class="cmd">${mcpJson(origin, ["your-project", "shared"])}</pre>
+    <p class="small muted">${viewer.local ? "Then set HONED_TOKEN in your environment to any value: this honed has no tokens." : html`Then set <code>HONED_TOKEN</code> in your environment to your token, so none is committed.`}</p>
   </details>`;
 }
 

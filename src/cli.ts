@@ -87,8 +87,7 @@ if (command === "token") {
       console.log(`${token}\n\nThe token for ${name}${values.admin ? " (admin)" : ""}. It is shown this once; honed keeps only its hash.`);
       if (first) {
         console.log(`\n${c.edge("!")} This is honed's first token, so it now asks every request for one, starting immediately, even on a server already running.
-  Claude Code sessions connected without one get 401s until it is given to them, in a session:
-  /plugin configure honed@honed`);
+  Claude Code sessions connected without one get 401s until HONED_TOKEN in their environment holds it.`);
       }
     } else if (sub === "list") {
       const tokens = store.tokens();
