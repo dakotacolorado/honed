@@ -10,9 +10,12 @@ export const DecisionSchema = z.object({
   reasoning: z.string().describe("Why you decided as you did, citing the feedback that decided it."),
   changed: z.boolean().describe("true if you are writing a new version of the skill."),
   note: z.string().describe("For a new version: one line for the skill's history. Empty otherwise."),
+  edits: z
+    .array(z.object({ path: z.string(), old: z.string(), new: z.string() }))
+    .describe("For a new version of an existing skill: each change to a file's text, `old` copied exactly from the current file (appearing once in it) and `new` its replacement. Applied in order, before write and remove. Empty otherwise."),
   write: z
     .array(z.object({ path: z.string(), content: z.string(), executable: z.boolean() }))
-    .describe("For a new version: each file to write, with its whole content. Empty otherwise."),
+    .describe("For a new skill, a new file, or a rewrite your reasoning justifies: each file to write, with its whole content. Empty otherwise."),
   remove: z.array(z.string()).describe("For a new version: each file to delete. Empty otherwise."),
   honer_feedback: z
     .string()

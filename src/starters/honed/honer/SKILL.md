@@ -23,7 +23,9 @@ Guidance must hold for every task the skill is used for. When feedback reports a
 ## Fit new things in
 - Put an addition where it belongs, merge it with what it overlaps, and resolve any contradiction it creates rather than keeping both sides.
 - The more a skill already says, the higher the bar for adding to it: a change to a full skill must make the whole better, not just longer.
-- Change only what the evidence touches, and keep the rest word for word. Rewriting a whole skill to fit one addition wears it down into vaguer summaries; condense untouched text only to make room under the cap.
+- Change only what the evidence touches, and keep the rest word for word: revise with edits to the text that's there, not by writing the file again. Rewriting a whole skill to fit one addition wears it down into vaguer summaries; condense untouched text only to make room under the cap.
+- Fix the wording that's wrong instead of adding a paragraph that corrects it. A correction beside the old text leaves agents two answers.
+- Keep a skill of facts (names, commands, paths) as bullets, one fact each, so a report can quote the one that's wrong and an edit can fix it alone.
 - Prefer one precise rule to three cautious ones. A change that makes a skill shorter without losing anything is always welcome.
 
 ## Stay consistent

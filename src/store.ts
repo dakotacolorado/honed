@@ -27,6 +27,7 @@ const COLUMNS: { table: string; column: string; definition: string }[] = [
   { table: "feedback", column: "quote", definition: "TEXT" },
   { table: "feedback", column: "evidence", definition: "TEXT NOT NULL DEFAULT '[]'" },
   { table: "feedback", column: "what_changed", definition: "TEXT" },
+  { table: "skills", column: "max_chars", definition: "INTEGER" },
 ];
 
 export interface Token {
@@ -61,7 +62,7 @@ const n = (v: unknown) => Number(v);
 const sn = (v: unknown) => (v === null || v === undefined ? null : String(v));
 const nn = (v: unknown) => (v === null || v === undefined ? null : Number(v));
 
-const skill = (r: Row): Skill => ({ name: s(r.name), version: n(r.version), createdAt: s(r.created_at) });
+const skill = (r: Row): Skill => ({ name: s(r.name), version: n(r.version), createdAt: s(r.created_at), maxChars: nn(r.max_chars) });
 const version = (r: Row): Version => ({ skill: s(r.skill), version: n(r.version), commit: s(r.commit_id), note: s(r.note), judgment: s(r.judgment), at: s(r.at) });
 const feedback = (r: Row): Feedback => ({
   id: s(r.id),
@@ -139,8 +140,12 @@ export class Store {
     const r = this.get("SELECT * FROM skills WHERE name = ?", name);
     return r && skill(r);
   }
-  putSkill(v: Skill): void {
+  /** Makes a skill, or moves it to a new version; its limit stays as an admin set it. */
+  putSkill(v: Omit<Skill, "maxChars">): void {
     this.run("INSERT INTO skills (name, version, created_at) VALUES (?, ?, ?) ON CONFLICT (name) DO UPDATE SET version = excluded.version", v.name, v.version, v.createdAt);
+  }
+  setMaxChars(name: string, maxChars: number | null): void {
+    this.run("UPDATE skills SET max_chars = ? WHERE name = ?", maxChars, name);
   }
 
   versions(name: string): Version[] {
