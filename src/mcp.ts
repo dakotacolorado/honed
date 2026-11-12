@@ -1,7 +1,7 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { authorOf } from "./auth.ts";
-import { Refusal, SKILL_FILE, type Caller } from "./domain.ts";
+import { checkName, NAMESPACES_HEADER, OWN_NAMESPACE, Refusal, Scope, SKILL_FILE, type Caller } from "./domain.ts";
 import type { Hub } from "./hub.ts";
 
 export const INSTRUCTIONS = `honed is your organization's shared skills library, and it improves from your feedback.
@@ -9,6 +9,34 @@ export const INSTRUCTIONS = `honed is your organization's shared skills library,
 - Before a task, search_skills for what it is about (or list_skills), and get_skill any whose description fits. Follow what you read.
 - After using a skill, submit_feedback only when it fell short: it was wrong, it left out something you had to find out, or a person or a check corrected you on what it covers. Quote the skill's text it is about exactly, show the evidence (a file as it is now, or a command and what it printed), and say what you did instead. If it simply worked, or your advice is something any capable agent does anyway, send nothing. Include files when you know the exact fix. Never include secrets or personal details.
 - To add a skill, read honed/skill-writing first, then submit_feedback under the new name with a draft of its ${SKILL_FILE}.`;
+
+/** The most skills the instructions name; the rest are a list_skills away. */
+const LISTED = 100;
+
+/** The .mcp.json a repo commits to connect to this server and bind its sessions to `namespaces`. */
+export function mcpJson(origin: string, namespaces: string[]): string {
+  const config = {
+    mcpServers: {
+      honed: {
+        type: "http",
+        url: `${origin}/mcp`,
+        headers: { Authorization: "Bearer ${HONED_TOKEN}", "X-Honed-Namespaces": namespaces.join(", ") },
+      },
+    },
+  };
+  return JSON.stringify(config, null, 2);
+}
+
+/** The instructions for one connection: how to use honed, then which skills it is bound to, or how to bind its repo. */
+export function instructions(hub: Hub, scope: Scope, origin: string): string {
+  const skills = hub.list(scope.prefixes);
+  const listed = skills.slice(0, LISTED).map((s) => `- ${s.name}: ${s.description}`).join("\n");
+  const more = skills.length > LISTED ? `\n- …and ${skills.length - LISTED} more: list_skills to see them all.` : "";
+  const binding = scope.bound
+    ? `This repo is bound to ${scope.namespaces.map((n) => `${n}/`).join(", ")} (and honed's own ${OWN_NAMESPACE}/). Its skills:\n${listed || "- none yet"}${more}`
+    : `This session's repo is bound to no namespace, so it sees only honed's own ${OWN_NAMESPACE}/ skills:\n${listed || "- none"}${more}\n\nTo bind a repo to the namespaces it uses (its own, plus any shared ones), commit this .mcp.json at its root, with your namespaces in ${NAMESPACES_HEADER}, and set HONED_TOKEN in each person's environment:\n${mcpJson(origin, ["your-project", "shared"])}`;
+  return `${INSTRUCTIONS}\n\n${binding}`;
+}
 
 const text = (value: unknown) => ({ content: [{ type: "text" as const, text: typeof value === "string" ? value : JSON.stringify(value, null, 2) }] });
 
@@ -22,17 +50,22 @@ async function answer(fn: () => Promise<unknown> | unknown) {
 }
 
 /** The MCP server for one request, speaking for `caller`. */
-export function mcpServer(hub: Hub, version: string, caller: Caller, local: boolean): McpServer {
-  const server = new McpServer({ name: "honed", version }, { instructions: INSTRUCTIONS });
+export function mcpServer(hub: Hub, version: string, caller: Caller, local: boolean, scope = new Scope([]), origin = ""): McpServer {
+  const server = new McpServer({ name: "honed", version }, { instructions: instructions(hub, scope, origin) });
+  /** A skill outside the scope is answered as one that does not exist, so a repo learns nothing of another's. */
+  const visible = (name: string) => {
+    if (!scope.sees(name)) throw new Refusal(`no skill is named ${name}`, 404);
+    return hub.skill(name);
+  };
 
   server.registerTool(
     "list_skills",
     {
       title: "List skills",
-      description: "Every skill in the library, with its description.",
+      description: "Every skill this repo is bound to, with its description.",
       annotations: { readOnlyHint: true },
     },
-    () => answer(() => hub.list().map(({ name, description, version }) => ({ name, description, version }))),
+    () => answer(() => hub.list(scope.prefixes).map(({ name, description, version }) => ({ name, description, version }))),
   );
 
   server.registerTool(
@@ -43,7 +76,7 @@ export function mcpServer(hub: Hub, version: string, caller: Caller, local: bool
       inputSchema: { query: z.string(), limit: z.number().int().positive().max(50).optional() },
       annotations: { readOnlyHint: true },
     },
-    ({ query, limit }) => answer(() => hub.search(query, limit ?? 10).map(({ name, description, version, snippet }) => ({ name, description, version, matched: snippet }))),
+    ({ query, limit }) => answer(() => hub.search(query, limit ?? 10, scope.prefixes).map(({ name, description, version, snippet }) => ({ name, description, version, matched: snippet }))),
   );
 
   server.registerTool(
@@ -60,7 +93,7 @@ export function mcpServer(hub: Hub, version: string, caller: Caller, local: bool
     },
     ({ name, path, version }) =>
       answer(async () => {
-        const skill = hub.skill(name);
+        const skill = visible(name);
         const files = await hub.files(name, version ?? skill.version);
         if (path) {
           const file = files.find((f) => f.path === path);
@@ -106,6 +139,13 @@ export function mcpServer(hub: Hub, version: string, caller: Caller, local: bool
     },
     ({ name, quote, evidence, what_changed, feedback, files, author }) =>
       answer(async () => {
+        if (!scope.sees(checkName(name))) {
+          throw new Refusal(
+            scope.bound
+              ? `${name} is outside the namespaces this repo is bound to (${scope.namespaces.map((n) => `${n}/`).join(", ")}): name a skill under one of them`
+              : `this session's repo is bound to no namespace, so it can report only on honed's own ${OWN_NAMESPACE}/ skills: bind the repo as your instructions say`,
+          );
+        }
         const { next } = await hub.submitFeedback({ skill: name, quote, evidence, whatChanged: what_changed, text: feedback, files, author: authorOf(caller, local, author) });
         if (next.kind === "off") return "Recorded. Revision is off on this server, so it will be read by a person.";
         if (next.kind === "admin") return `Recorded. ${name} is revised only when an admin asks; your feedback will be there when they do.`;

@@ -8,7 +8,7 @@ import type { HtmlEscapedString } from "hono/utils/html";
 import { COOKIE, deleteRoute, describeApi, editRoute, getJudgmentRoute, getSkillRoute, honoPath, judgeRoute, limitRoute, listSkillsRoute, previewRoute, revertRoute, WRITE_HEADER } from "./api.ts";
 import { callerOf } from "./auth.ts";
 import { DEFAULT_URL, LETTERS_ONLY, SUMMARY, SWORD_PIXELS, TAGLINE } from "./banner.ts";
-import { baseName, HONER_SKILL, LOCAL_CALLER, NAME_ROUTE, prefixOf, Refusal, SKILL_FILE, type Caller, type Feedback, type Judgment } from "./domain.ts";
+import { baseName, HONER_SKILL, NAMESPACES_HEADER, parseNamespaces, Scope, LOCAL_CALLER, NAME_ROUTE, prefixOf, Refusal, SKILL_FILE, type Caller, type Feedback, type Judgment } from "./domain.ts";
 import { parseDiff } from "./diffview.ts";
 import { renderMarkdown, withoutFrontmatter } from "./markdown.ts";
 import type { Hub, SkillSummary } from "./hub.ts";
@@ -574,7 +574,8 @@ export function app(hub: Hub, version: string, opts: AppOptions = {}): OpenAPIHo
   web.all("/mcp", async (c) => {
     const { caller, local } = c.get("viewer");
     const transport = new WebStandardStreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true });
-    await mcpServer(hub, version, caller, local).connect(transport);
+    const scope = new Scope(parseNamespaces(c.req.header(NAMESPACES_HEADER)));
+    await mcpServer(hub, version, caller, local, scope, new URL(c.req.url).origin).connect(transport);
     return transport.handleRequest(c.req.raw);
   });
 

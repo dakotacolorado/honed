@@ -134,6 +134,43 @@ export function checkName(name: string): string {
   return name;
 }
 
+/** The header a repo's .mcp.json sends to bind its sessions to the namespaces it uses. */
+export const NAMESPACES_HEADER = "x-honed-namespaces";
+/** honed's own skills' prefix: every connection sees them, bound or not. */
+export const OWN_NAMESPACE = "honed";
+
+/**
+ * The namespaces a connection is bound to, from its X-Honed-Namespaces header: prefixes separated by commas or spaces,
+ * each with or without its trailing slash. None for a connection that sent no header.
+ */
+export function parseNamespaces(header: string | undefined | null): string[] {
+  const parts = (header ?? "").split(/[\s,]+/).map((p) => p.trim().replace(/\/$/, "")).filter(Boolean);
+  for (const p of parts) {
+    if (!new RegExp(`^${PART}$`).test(p) || p.length > 64) {
+      throw new Refusal(`"${p}" in ${NAMESPACES_HEADER} is not a namespace: each must be a prefix like workplace-ui or ux, lowercase letters, digits and single hyphens`);
+    }
+  }
+  return [...new Set(parts)];
+}
+
+/** What a connection may see: the skills under its namespaces, and honed's own. */
+export class Scope {
+  readonly namespaces: string[];
+  constructor(namespaces: string[]) {
+    this.namespaces = namespaces;
+  }
+  get bound(): boolean {
+    return this.namespaces.length > 0;
+  }
+  /** Every prefix it sees, honed's own included. */
+  get prefixes(): string[] {
+    return [...new Set([...this.namespaces, OWN_NAMESPACE])];
+  }
+  sees(name: string): boolean {
+    return this.prefixes.includes(prefixOf(name));
+  }
+}
+
 /** The part after the prefix: what a SKILL.md's frontmatter names, since Claude Code's skill names have no slash. */
 export const baseName = (name: string) => name.slice(name.lastIndexOf("/") + 1);
 /** The prefix a skill is grouped under, or "" for none. */

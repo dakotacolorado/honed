@@ -263,12 +263,14 @@ export class Store {
     this.run("INSERT INTO search (name, description, body) VALUES (?, ?, ?)", name, description, body);
   }
   /** Skills matching any word of `query`, best first, with where each matched. */
-  search(query: string, limit: number): Hit[] {
+  search(query: string, limit: number, prefixes?: string[]): Hit[] {
     const match = matchQuery(query);
     if (!match) return [];
+    const within = prefixes ? ` AND (${prefixes.map(() => "substr(name, 1, ?) = ?").join(" OR ") || "0"})` : "";
     return this.all(
-      "SELECT name, snippet(search, 2, '«', '»', '…', 12) AS snippet FROM search WHERE search MATCH ? ORDER BY bm25(search, 10.0, 5.0, 1.0) LIMIT ?",
+      `SELECT name, snippet(search, 2, '«', '»', '…', 12) AS snippet FROM search WHERE search MATCH ?${within} ORDER BY bm25(search, 10.0, 5.0, 1.0) LIMIT ?`,
       match,
+      ...(prefixes ?? []).flatMap((p) => [p.length + 1, `${p}/`]),
       limit,
     ).map((r) => ({ name: s(r.name), snippet: s(r.snippet) }));
   }

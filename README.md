@@ -47,6 +47,26 @@ what no edit names stays word for word.
 Names can have one prefix that groups them: `team/deploys`, `honed/honer`. A skill's `SKILL.md` frontmatter
 names only the part after it, as Claude Code expects.
 
+The prefix is a skill's namespace: a project (`workplace-ui/`), an initiative, or a shared set (`ux/`). Each repo
+commits a `.mcp.json` naming the namespaces it uses, its own plus any shared ones, and its sessions see only the skills
+in them, plus honed's own `honed/`. Honed never points back at the repo. The token comes from each person's
+environment, so none is committed:
+
+```json
+{
+  "mcpServers": {
+    "honed": {
+      "type": "http",
+      "url": "http://127.0.0.1:4321/mcp",
+      "headers": { "Authorization": "Bearer ${HONED_TOKEN}", "X-Honed-Namespaces": "workplace-ui, ux" }
+    }
+  }
+}
+```
+
+A session's MCP instructions name the skills it is bound to. A connection with no `X-Honed-Namespaces` sees only
+`honed/`, and its instructions say how to bind its repo. A skill with no prefix is seen by no session.
+
 A new library starts with a few team skills to show the idea and get you going: `team/git-commits`,
 `team/code-review` and `team/ux-review`. They're yours to change, and your agents' feedback will. Two more belong to
 honed itself:
