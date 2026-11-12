@@ -13,13 +13,18 @@ import {
   HONER_SKILL,
   WRITING_SKILL,
   JUDGMENT_ATTEMPTS,
+  MAX_EVIDENCE,
+  MAX_EVIDENCE_ITEMS,
+  MIN_QUOTE,
   newId,
   now,
   PRECEDENT,
+  quoted,
   Refusal,
   SKILL_FILE,
   textSize,
   type DraftFile,
+  type Evidence,
   type Feedback,
   type Judgment,
   type Skill,
@@ -62,6 +67,42 @@ export interface HubOptions {
 }
 
 const ANONYMOUS = "an unnamed agent";
+
+/** What an agent sends: a report on a skill (quote, evidence, what changed), or a request for a new one (text and a draft). */
+export interface FeedbackInput {
+  skill: string;
+  quote?: string;
+  evidence?: { path?: string; content?: string; command?: string; output?: string }[];
+  whatChanged?: string;
+  text?: string;
+  files?: DraftFile[];
+  author?: string;
+}
+
+/** Evidence as a report must carry it: each piece a file with its current contents, or a command with what it printed. */
+function checkEvidence(items: NonNullable<FeedbackInput["evidence"]>): Evidence[] {
+  if (items.length === 0) {
+    throw new Refusal("a report needs evidence: a file path with the file's current contents, or a command you ran with what it actually printed");
+  }
+  if (items.length > MAX_EVIDENCE_ITEMS) throw new Refusal(`a report carries at most ${MAX_EVIDENCE_ITEMS} pieces of evidence: keep the ones that show the quote is wrong`);
+  const out = items.map((e): Evidence => {
+    const path = e.path?.trim();
+    const command = e.command?.trim();
+    if (path && command) throw new Refusal("each piece of evidence is either a file (path and content) or a command (command and output), not both");
+    if (path) {
+      if (!e.content?.trim()) throw new Refusal(`evidence on ${path} needs content: include the file's current contents, or the part that shows the quote is wrong`);
+      return { path, content: e.content };
+    }
+    if (command) {
+      if (!e.output?.trim()) throw new Refusal(`evidence from \`${command}\` needs output: include what the command actually printed`);
+      return { command, output: e.output };
+    }
+    throw new Refusal("each piece of evidence needs a path and the file's current contents, or a command and what it actually printed");
+  });
+  const size = out.reduce((n, e) => n + ("content" in e ? e.content.length : e.output.length), 0);
+  if (size > MAX_EVIDENCE) throw new Refusal(`the evidence holds ${size} characters, over ${MAX_EVIDENCE}: keep only the lines that show the quote is wrong`);
+  return out;
+}
 const STARTERS = fileURLToPath(new URL("./starters/", import.meta.url));
 
 /** A starter's files, read from the folder shipped with honed. */
@@ -228,14 +269,33 @@ export class Hub {
 
   // Feedback
 
-  /** Feedback on a skill, or on one that does not exist yet, which asks for it. A draft is checked against the cap now, so an agent hears at once. */
-  async submitFeedback(input: { skill: string; text: string; files?: DraftFile[]; author?: string }): Promise<{ feedback: Feedback; next: Next }> {
+  /**
+   * A report on a skill, or a request for one that does not exist yet. A report quotes the skill's text it is about,
+   * shows the evidence and says what the agent did instead; each is checked here, so the agent hears at once how to fix
+   * a report and the judge reads only ones that hold. A draft is checked against the cap now too.
+   */
+  async submitFeedback(input: FeedbackInput): Promise<{ feedback: Feedback; next: Next }> {
     const name = checkName(input.skill);
-    const text = input.text.trim();
-    if (!text) throw new Refusal("feedback needs text: what happened when you used the skill, and what should change");
+    const text = (input.text ?? "").trim();
     const draft = checkDraft(input.files ?? []);
+    const current = await this.current(name);
+    const exists = this.store.skill(name) !== undefined;
+    let quote: string | null = null;
+    let evidence: Evidence[] = [];
+    let whatChanged: string | null = null;
+    if (exists) {
+      quote = (input.quote ?? "").trim();
+      if (!quote) throw new Refusal(`a report on ${name} needs quote: the exact text in the skill that is wrong or falls short, copied from get_skill`);
+      if (quote.length < MIN_QUOTE) throw new Refusal(`"${quote}" is too short to say which text is wrong: quote the whole sentence or line from ${name}`);
+      if (!quoted(quote, current)) throw new Refusal(`this text is not in ${name} as it is now (v${this.store.skill(name)!.version}); get_skill it again and quote it exactly: "${quote.slice(0, 200)}"`);
+      evidence = checkEvidence(input.evidence ?? []);
+      whatChanged = (input.whatChanged ?? "").trim();
+      if (!whatChanged) throw new Refusal("a report needs what_changed: what you did instead of what the quoted text says, or what you changed that it describes");
+    } else if (!text) {
+      throw new Refusal(`no skill is named ${name} yet: to ask for it, say in feedback what it is for, and draft its ${SKILL_FILE} following ${WRITING_SKILL}`);
+    }
     if (draft.length) {
-      const size = textSize(applyFiles(await this.current(name), draft));
+      const size = textSize(applyFiles(current, draft));
       if (size > this.maxChars) throw new Refusal(`with your draft the skill would hold ${size} characters, over the cap of ${this.maxChars}: condense it`);
     }
     const f: Feedback = {
@@ -243,6 +303,9 @@ export class Hub {
       skill: name,
       version: this.store.skill(name)?.version ?? 0,
       text,
+      quote,
+      evidence,
+      whatChanged,
       draft,
       author: input.author?.trim() || ANONYMOUS,
       at: now(),
@@ -451,6 +514,9 @@ export class Hub {
         skill: HONER_SKILL,
         version: this.store.skill(HONER_SKILL)!.version,
         text: reflection,
+        quote: null,
+        evidence: [],
+        whatChanged: null,
         draft: [],
         author: `${HONER_AUTHOR} (revising ${c.skill})`,
         at: now(),

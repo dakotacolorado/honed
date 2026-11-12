@@ -61,7 +61,12 @@ export function render(c: Case): string {
     .map((f) =>
       [
         `<feedback by="${attr(f.author)}" on_version="${f.version}" at="${f.at}">`,
-        f.text,
+        ...(f.quote !== null ? [`<quote>\n${f.quote}\n</quote>`] : []),
+        ...f.evidence.map((e) =>
+          "path" in e ? `<evidence file="${attr(e.path)}">\n${e.content}\n</evidence>` : `<evidence command="${attr(e.command)}">\n${e.output}\n</evidence>`,
+        ),
+        ...(f.whatChanged !== null ? [`<what_changed>\n${f.whatChanged}\n</what_changed>`] : []),
+        ...(f.text ? [f.quote !== null ? `<also_said>\n${f.text}\n</also_said>` : f.text] : []),
         ...(f.draft.length ? [`<draft>\n${f.draft.map((d) => file("file", d)).join("\n")}\n</draft>`] : []),
         `</feedback>`,
       ].join("\n"),

@@ -114,13 +114,18 @@ describe("a local server, with no tokens", () => {
     assert.deepEqual(got.value.files, [{ path: "scripts/prs.sh", executable: true }]);
     assert.match((await call(client, "get_skill", { name: "release-notes", path: "scripts/prs.sh" })).value, /gh pr list/);
     assert.equal(s.hub.store.feedback("release-notes")[0]?.author, "writer");
-    assert.equal((await call(client, "submit_feedback", { name: "release-notes", feedback: "Saved me the grouping." })).isError, false);
+    assert.equal((await call(client, "submit_feedback", { name: "release-notes", quote: "Group by user-facing change.", evidence: [{ command: "gh pr list --state merged", output: "#12 Fix login" }], what_changed: "Grouped by PR instead.", feedback: "Saved me the grouping." })).isError, false);
   });
 
   test("answers a refusal as a tool error, in the server's words", async () => {
     const bad = await call(client, "submit_feedback", { name: "Bad Name", feedback: "t" });
     assert.equal(bad.isError, true);
     assert.match(bad.value, /lowercase letters/);
+    const unquoted = await call(client, "submit_feedback", { name: "release-notes", quote: "Group by date.", evidence: [{ command: "git log", output: "a1 b2" }], what_changed: "Grouped by change." });
+    assert.equal(unquoted.isError, true);
+    assert.match(unquoted.value, /this text is not in release-notes as it is now \(v1\); get_skill it again and quote it exactly/);
+    const bare = await call(client, "submit_feedback", { name: "release-notes", quote: "Group by user-facing change.", what_changed: "Grouped by change." });
+    assert.match(bare.value, /needs evidence/);
     assert.match((await call(client, "get_skill", { name: "nope" })).value, /no skill is named nope/);
     assert.match((await call(client, "get_skill", { name: "release-notes", path: "nope.md" })).value, /has no file nope\.md/);
   });
@@ -158,7 +163,13 @@ describe("a local server, with no tokens", () => {
   });
 
   test("escapes what agents wrote, and highlights a search match without trusting it", async () => {
-    await s.hub.submitFeedback({ skill: "release-notes", text: "<script>alert(1)</script>" });
+    await s.hub.submitFeedback({
+      skill: "release-notes",
+      quote: "Group by user-facing change.",
+      evidence: [{ path: "<script>a.ts</script>", content: "<script>alert(2)</script>" }],
+      whatChanged: "<script>alert(3)</script>",
+      text: "<script>alert(1)</script>",
+    });
     const body = await (await fetch(`${s.base}/skills/release-notes?tab=feedback`)).text();
     assert.doesNotMatch(body, /<script>alert/);
     assert.match(body, /&lt;script&gt;alert/);
@@ -208,7 +219,8 @@ describe("a server with tokens", () => {
   test("attributes feedback to its token, with the role the agent gave", async () => {
     const client = await connect(s.base, agent);
     await call(client, "submit_feedback", { name: "x", feedback: "make it", files: [{ path: "SKILL.md", content: "---\nname: x\ndescription: d\n---\n" }], author: "reviewer on PR 3" });
-    await call(client, "submit_feedback", { name: "x", feedback: "plain" });
+    await s.hub.idle();
+    await call(client, "submit_feedback", { name: "x", quote: "description: d", evidence: [{ command: "gh pr list --state merged", output: "#12 Fix login" }], what_changed: "Grouped by PR instead." });
     await s.hub.idle();
     assert.deepEqual(s.hub.store.feedback("x").map((f) => f.author).sort(), ["ci-agent", "ci-agent (reviewer on PR 3)"]);
     await client.close();
@@ -216,7 +228,7 @@ describe("a server with tokens", () => {
 
   test("lets only an admin revert, and records who did", async () => {
     const client = await connect(s.base, agent);
-    await call(client, "submit_feedback", { name: "x", feedback: "v2", files: [{ path: "SKILL.md", content: "---\nname: x\ndescription: d2\n---\n" }] });
+    await call(client, "submit_feedback", { name: "x", quote: "description: d", evidence: [{ command: "gh pr list --state merged", output: "#12 Fix login" }], what_changed: "Grouped by PR instead.", feedback: "v2", files: [{ path: "SKILL.md", content: "---\nname: x\ndescription: d2\n---\n" }] });
     await client.close();
     await s.hub.idle();
     const asAgent = await fetch(`${s.base}/api/skills/x/revert`, { method: "POST", headers: { ...WRITE, authorization: `Bearer ${agent}` }, body: JSON.stringify({ version: 1 }) });
@@ -268,7 +280,7 @@ describe("a server with tokens", () => {
     assert.equal(edited.status, 200);
     assert.equal(s.hub.list().find((k) => k.name === "x")?.description, "edited");
     const client = await connect(s.base, agent);
-    assert.match((await call(client, "submit_feedback", { name: "x", feedback: "fine" })).value, /revised once 2 more pieces of feedback arrive/);
+    assert.match((await call(client, "submit_feedback", { name: "x", quote: "description: edited", evidence: [{ command: "gh pr list --state merged", output: "#12 Fix login" }], what_changed: "Grouped by PR instead." })).value, /revised once 2 more pieces of feedback arrive/);
     await client.close();
     const deleted = await fetch(`${s.base}/api/skills/x/delete`, { method: "POST", headers: { ...WRITE, authorization: `Bearer ${admin}` }, body: JSON.stringify({ reason: "done" }) });
     assert.equal(deleted.status, 200);

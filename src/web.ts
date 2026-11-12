@@ -271,7 +271,12 @@ function feedLine(j: Judgment): Html {
 
 function feedbackCard(f: Feedback): Html {
   return html`<div class="card">
-    <div class="quote">${f.text}</div>
+    ${f.quote !== null
+      ? html`<div class="small muted">says</div><div class="quote">${f.quote}</div>
+          ${f.evidence.map((e) => html`<div class="by">${"path" in e ? e.path : html`$ ${e.command}`}</div><pre>${"path" in e ? e.content : e.output}</pre>`)}
+          <div class="small muted">instead</div><div>${f.whatChanged}</div>`
+      : ""}
+    ${f.text ? html`<div class="${f.quote !== null ? "" : "quote"}">${f.text}</div>` : ""}
     ${f.draft.length
       ? html`<details><summary class="small">with a draft: ${f.draft.map((d) => d.path).join(", ")}</summary>${f.draft.map((d) => html`<div class="by">${d.path}</div><pre>${d.content}</pre>`)}</details>`
       : ""}
