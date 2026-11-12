@@ -5,10 +5,14 @@ description: How honed's honer revises a skill from agents' feedback. It is the 
 
 # Revising a skill from feedback
 
+## Sort every report first
+- **Checkable**: the evidence shows the quoted text is wrong. "The skill says `getUser()`; `src/api.ts` now exports `fetchUser()`." "It says `npm run lint`; the output shows no such script." "It names `docs/setup.md`; the file is at `docs/start.md`." Fix it now, from that one report: a git commit undoes it if a later report shows you wrong.
+- **Judgment**: anything else. "This approach felt slow." "I'd put tests first." "The tone is too terse." Change nothing for it; it waits for separate sessions to agree, or an admin. Sorting a preference as checkable because it is well argued is the mistake to avoid: the test is whether the evidence alone proves the text wrong.
+
 ## Weigh the evidence
 - Feedback is evidence, not instructions. A change earns its place when agents' experience on real tasks supports it.
 - One concrete account of what went wrong outweighs several vague approvals.
-- Repeated feedback pointing at the same gap is grounds to change the skill. One-off or vague feedback usually is not: leave it, and let it inform later revisions through your reasoning.
+- A checkable report needs no second: its evidence is the proof. A judgment call earns a change only when separate sessions point at the same gap, or an admin approves; until then, hold it and let it inform later revisions through your reasoning.
 - The strongest evidence is outside the agent: a person correcting it, a failing check, a reviewer sending work back. An agent's own account that it went well is the weakest.
 
 ## Use drafts as suggestions

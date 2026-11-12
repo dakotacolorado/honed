@@ -23,9 +23,11 @@ const takeDraft: Judge = {
   label: "a fake judge",
   async decide(c) {
     const d = [...c.feedback].reverse().find((f) => f.draft.length);
+    // A report with a draft is sorted checkable, one without a judgment call.
+    const sorted = c.feedback.filter((f) => f.quote !== null).map((f) => ({ report: f.id.slice(0, 8), kind: f.draft.length ? ("checkable" as const) : ("judgment" as const), why: f.draft.length ? "Its evidence shows the text wrong." : "A matter of taste." }));
     return (d
-      ? { reasoning: "Supported by the report.", changed: true, note: d.text, edits: [], write: d.draft.map((f) => ({ ...f, executable: f.executable ?? false })), remove: [], revert_to: 0, honer_feedback: "" }
-      : { reasoning: "Not yet.", changed: false, note: "", edits: [], write: [], remove: [], revert_to: 0, honer_feedback: "" }) satisfies Decision;
+      ? { reasoning: "Supported by the report.", changed: true, note: d.text, edits: [], write: d.draft.map((f) => ({ ...f, executable: f.executable ?? false })), remove: [], revert_to: 0, sorted, honer_feedback: "" }
+      : { reasoning: "Not yet.", changed: false, note: "", edits: [], write: [], remove: [], revert_to: 0, sorted, honer_feedback: "" }) satisfies Decision;
   },
 };
 
@@ -255,6 +257,29 @@ describe("a connection's namespaces", () => {
   });
 });
 
+test("the page shows how the judge sorted each report, and why", async () => {
+  const s = await start();
+  try {
+    const md = (body: string) => [{ path: "SKILL.md", content: `---\nname: y\ndescription: d\n---\n\n${body}\n` }];
+    await s.hub.submitFeedback({ skill: "docs/y", text: "make it", files: md("Run `make ship`.") });
+    await s.hub.idle();
+    const report = { skill: "docs/y", quote: "Run `make ship`.", evidence: [{ command: "make ship", output: "No rule" }], whatChanged: "Ran ./deploy." };
+    await s.hub.submitFeedback({ ...report, files: md("Run `./deploy`.") });
+    await s.hub.idle();
+    const { feedback: taste } = await s.hub.submitFeedback({ ...report, quote: "Run `./deploy`.", whatChanged: "I'd write it as a list." });
+    await s.hub.idle();
+    const tab = await (await fetch(`${s.base}/skills/docs/y?tab=feedback`)).text();
+    assert.match(tab, /sorted checkable: acted on at once by <a href="\/judgments\/[^"]+">the honer<\/a>: Its evidence shows the text wrong\./);
+    assert.match(tab, /sorted a judgment call: waits for separate sessions or an admin to agree by <a[^>]*>the honer<\/a>: A matter of taste\./);
+    assert.match(tab, /held for agreement/);
+    const why = await (await fetch(`${s.base}/judgments/${s.hub.store.feedback("docs/y").find((f) => f.id === taste.id)!.sortedBy}`)).text();
+    assert.match(why, /<h2>held for agreement<\/h2>/);
+    assert.match(why, /I&#39;d write it as a list\./);
+  } finally {
+    await s.close();
+  }
+});
+
 test("a skill's history names the reports behind each version, and both behind a revert", async () => {
   const s = await start();
   try {
@@ -370,7 +395,7 @@ describe("a server with tokens", () => {
     assert.equal(edited.status, 200);
     assert.equal(s.hub.list().find((k) => k.name === "docs/x")?.description, "edited");
     const client = await connect(s.base, agent);
-    assert.match((await call(client, "submit_feedback", { name: "docs/x", quote: "description: edited", evidence: [{ command: "gh pr list --state merged", output: "#12 Fix login" }], what_changed: "Grouped by PR instead." })).value, /revised once 2 more pieces of feedback arrive/);
+    assert.match((await call(client, "submit_feedback", { name: "docs/x", quote: "description: edited", evidence: [{ command: "gh pr list --state merged", output: "#12 Fix login" }], what_changed: "Grouped by PR instead." })).value, /The honer is judging it now: if your evidence shows the quoted text is wrong, docs\/x is fixed from it; anything else waits until other sessions or an admin agree\./);
     await client.close();
     const deleted = await fetch(`${s.base}/api/skills/docs/x/delete`, { method: "POST", headers: { ...WRITE, authorization: `Bearer ${admin}` }, body: JSON.stringify({ reason: "done" }) });
     assert.equal(deleted.status, 200);

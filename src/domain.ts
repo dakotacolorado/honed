@@ -10,8 +10,6 @@ export const HONER_SKILL = "honed/honer";
 export const WRITING_SKILL = "honed/skill-writing";
 /** Who the honer's feedback on its own guidance is recorded as written by. */
 export const HONER_AUTHOR = "the honer";
-/** Feedback without a draft waits for this many on a skill before the judge looks; a draft is judged at once. */
-export const FEEDBACK_BATCH = 3;
 /** Failed judgments in a row before a skill waits for new feedback. */
 export const JUDGMENT_ATTEMPTS = 3;
 /** Past judgments on a skill the judge is shown, to stay consistent with itself. */
@@ -82,7 +80,16 @@ export interface Feedback {
   at: string;
   /** The judgment that considered it; null while it waits for one. */
   judgment: string | null;
+  /** How the judge sorted it: checkable (its evidence shows the quote wrong, so acted on at once) or judgment (held for agreement); null until sorted. */
+  sort: "checkable" | "judgment" | null;
+  /** The judge's reason for sorting it so. */
+  sortWhy: string | null;
+  /** The judgment that sorted it. */
+  sortedBy: string | null;
 }
+
+/** Feedback as it is first recorded: not yet considered or sorted. */
+export const unsorted = { judgment: null, sort: null, sortWhy: null, sortedBy: null } as const;
 
 /** One change, or decision not to change, to a skill: the judge's from feedback, a person's revert, or a starter shipped with honed. */
 export interface Judgment {

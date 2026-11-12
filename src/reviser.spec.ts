@@ -37,8 +37,8 @@ describe("choosing who revises", () => {
 });
 
 describe("the API judge", () => {
-  const c: Case = { skill: "x", version: 1, maxChars: 20_000, files: [], others: [], feedback: [], precedent: [], failure: null, guidance: "## Weigh the evidence", writingGuide: null };
-  const decision = { reasoning: "r", changed: false, note: "", edits: [], write: [], remove: [], revert_to: 0, honer_feedback: "" };
+  const c: Case = { skill: "x", version: 1, maxChars: 20_000, files: [], others: [], feedback: [], precedent: [], approved: false, failure: null, guidance: "## Weigh the evidence", writingGuide: null };
+  const decision = { reasoning: "r", changed: false, note: "", edits: [], write: [], remove: [], revert_to: 0, sorted: [], honer_feedback: "" };
 
   /** A client that answers every request with `reply` (or throws it), and keeps what it was sent. */
   function stub(reply: unknown) {

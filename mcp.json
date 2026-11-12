@@ -1,5 +1,5 @@
 {
-  "instructions": "honed is your organization's shared skills library, and it improves from your feedback.\n\n- Before a task, search_skills for what it is about (or list_skills), and get_skill any whose description fits. Follow what you read.\n- After using a skill, submit_feedback only when it fell short: it was wrong, it left out something you had to find out, or a person or a check corrected you on what it covers. Quote the skill's text it is about exactly, show the evidence (a file as it is now, or a command and what it printed), and say what you did instead. If it simply worked, or your advice is something any capable agent does anyway, send nothing. Include files when you know the exact fix. Never include secrets or personal details.\n- To add a skill, read honed/skill-writing first, then submit_feedback under the new name with a draft of its SKILL.md.\n\nThis session's repo is bound to no namespace, so it sees only honed's own honed/ skills:\n- none\n\nTo bind a repo to the namespaces it uses (its own, plus any shared ones), commit this .mcp.json at its root, with your namespaces in x-honed-namespaces, and set HONED_TOKEN in each person's environment:\n{\n  \"mcpServers\": {\n    \"honed\": {\n      \"type\": \"http\",\n      \"url\": \"http://127.0.0.1:4321/mcp\",\n      \"headers\": {\n        \"Authorization\": \"Bearer ${HONED_TOKEN}\",\n        \"X-Honed-Namespaces\": \"your-project, shared\"\n      }\n    }\n  }\n}",
+  "instructions": "honed is your organization's shared skills library, and it improves from your reports.\n\n- Before a task, search_skills for what it is about (or list_skills), and get_skill any whose description fits. Follow what you read.\n- If you edited something a skill mentions, or a skill gave you wrong information, report it before you finish, quoting the skill's text and showing the evidence. Use submit_feedback: quote is the skill's exact text, evidence the file as it is now or the command and what it printed, what_changed what you did or changed. Otherwise send nothing. Include files when you know the exact fix. Never include secrets or personal details.\n- To add a skill, read honed/skill-writing first, then submit_feedback under the new name with a draft of its SKILL.md.\n\nThis session's repo is bound to no namespace, so it sees only honed's own honed/ skills:\n- none\n\nTo bind a repo to the namespaces it uses (its own, plus any shared ones), commit this .mcp.json at its root, with your namespaces in x-honed-namespaces, and set HONED_TOKEN in each person's environment:\n{\n  \"mcpServers\": {\n    \"honed\": {\n      \"type\": \"http\",\n      \"url\": \"http://127.0.0.1:4321/mcp\",\n      \"headers\": {\n        \"Authorization\": \"Bearer ${HONED_TOKEN}\",\n        \"X-Honed-Namespaces\": \"your-project, shared\"\n      }\n    }\n  }\n}",
   "tools": [
     {
       "name": "list_skills",
@@ -80,7 +80,7 @@
     {
       "name": "submit_feedback",
       "title": "Submit feedback on a skill",
-      "description": "Report where a skill's text is wrong or falls short: quote that text exactly, show the evidence, and say what you did instead. A report missing any of these, or quoting text the skill does not have, is refused with how to fix it; resubmit it fixed. Not for a skill that simply worked. Include files to suggest exact text. Under a name no skill has yet, it asks for that skill: say what it is for in feedback, follow honed/skill-writing and draft its SKILL.md; no quote is needed. Skills are revised from these reports.",
+      "description": "If you edited something a skill mentions, or a skill gave you wrong information, report it before you finish, quoting the skill's text and showing the evidence. quote is that text exactly, evidence what shows it is wrong, and what_changed what you did instead or changed. A report missing any of these, or quoting text the skill does not have, is refused with how to fix it; resubmit it fixed. Include files to suggest exact text. Under a name no skill has yet, it asks for that skill: say what it is for in feedback, follow honed/skill-writing and draft its SKILL.md; no quote is needed. Skills are revised from these reports.",
       "inputSchema": {
         "$schema": "http://json-schema.org/draft-07/schema#",
         "type": "object",
@@ -90,7 +90,7 @@
             "description": "The skill, e.g. team/code-review: an optional prefix for its group, then lowercase letters, digits and hyphens."
           },
           "quote": {
-            "description": "The exact text in the skill that is wrong or falls short, copied from get_skill: a whole sentence or line. Not needed for a new skill.",
+            "description": "The exact text in the skill that is wrong or that your edit made out of date, copied from get_skill: a whole sentence or line. Not needed for a new skill.",
             "type": "string"
           },
           "evidence": {

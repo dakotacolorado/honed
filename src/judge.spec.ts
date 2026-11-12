@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { test } from "node:test";
 import { ClaudeJudge, decisionJsonSchema, render, type Case } from "./judge.ts";
 
-const c: Case = { skill: "x", version: 0, maxChars: 20_000, files: [], others: [], feedback: [], precedent: [], failure: null, guidance: "", writingGuide: null };
+const c: Case = { skill: "x", version: 0, maxChars: 20_000, files: [], others: [], feedback: [], precedent: [], approved: false, failure: null, guidance: "", writingGuide: null };
 
 test("the decision schema carries no $schema, which Claude Code refuses", () => {
   const schema = decisionJsonSchema();
@@ -27,7 +27,7 @@ async function fakeClaude(output: unknown, code = 0): Promise<{ path: string; do
 }
 
 test("reads the decision from Claude Code's structured output", async () => {
-  const decision = { reasoning: "r", changed: false, note: "", edits: [], write: [], remove: [], revert_to: 0, honer_feedback: "" };
+  const decision = { reasoning: "r", changed: false, note: "", edits: [], write: [], remove: [], revert_to: 0, sorted: [], honer_feedback: "" };
   const claude = await fakeClaude({ is_error: false, structured_output: decision });
   try {
     assert.deepEqual(await new ClaudeJudge({ command: claude.path }).decide(c), decision);

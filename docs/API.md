@@ -1,6 +1,6 @@
 # honed
 
-> Version 0.3.5
+> Version 0.3.6
 
 honed's JSON API: the skills in the library, the feedback on them, and the judgments that changed them, read by the page and by anything else that wants them. Agents use the MCP server at `/mcp` instead (its docs are at `/docs/mcp`).
 
@@ -222,6 +222,12 @@ name: string //pattern: ^(?:[a-z0-9]+(?:-[a-z0-9]+)*\/)?[a-z0-9]+(?:-[a-z0-9]+)*
     at: string
     // The judgment that considered it; null while it waits for one.
     judgment: string | null
+    // How the judge sorted it: checkable (its evidence shows the quote wrong, so acted on at once) or judgment (held for agreement); null until sorted.
+    sort: enum[checkable, judgment, ] | null
+    // The judge's reason for sorting it so.
+    sortWhy: string | null
+    // The judgment that sorted it.
+    sortedBy: string | null
   }[]
 }
 ```
@@ -327,6 +333,12 @@ id: string
      at: string
      // The judgment that considered it; null while it waits for one.
      judgment: string | null
+     // How the judge sorted it: checkable (its evidence shows the quote wrong, so acted on at once) or judgment (held for agreement); null until sorted.
+     sort: enum[checkable, judgment, ] | null
+     // The judge's reason for sorting it so.
+     sortWhy: string | null
+     // The judgment that sorted it.
+     sortedBy: string | null
    }[]
  }
 ```
@@ -995,7 +1007,7 @@ Why.
   reviseSkill
 
 - Description  
-  Has the judge consider the skill now, whatever feedback is waiting, rather than once enough arrives; the only way `honed/honer` is revised. Answers at once: the judgment appears in the skill's history when done. Needs an admin token.
+  Has the judge consider the skill now, whatever feedback is waiting, judgment reports held for agreement included, which this approves; the only way `honed/honer` is revised. Answers at once: the judgment appears in the skill's history when done. Needs an admin token.
 
 - Tags  
   writes
@@ -1205,6 +1217,12 @@ Set by signing in on the page.
     at: string
     // The judgment that considered it; null while it waits for one.
     judgment: string | null
+    // How the judge sorted it: checkable (its evidence shows the quote wrong, so acted on at once) or judgment (held for agreement); null until sorted.
+    sort: enum[checkable, judgment, ] | null
+    // The judge's reason for sorting it so.
+    sortWhy: string | null
+    // The judgment that sorted it.
+    sortedBy: string | null
   }[]
 }
 ```
@@ -1272,6 +1290,12 @@ Set by signing in on the page.
   at: string
   // The judgment that considered it; null while it waits for one.
   judgment: string | null
+  // How the judge sorted it: checkable (its evidence shows the quote wrong, so acted on at once) or judgment (held for agreement); null until sorted.
+  sort: enum[checkable, judgment, ] | null
+  // The judge's reason for sorting it so.
+  sortWhy: string | null
+  // The judgment that sorted it.
+  sortedBy: string | null
 }
 ```
 
@@ -1321,6 +1345,12 @@ Set by signing in on the page.
      at: string
      // The judgment that considered it; null while it waits for one.
      judgment: string | null
+     // How the judge sorted it: checkable (its evidence shows the quote wrong, so acted on at once) or judgment (held for agreement); null until sorted.
+     sort: enum[checkable, judgment, ] | null
+     // The judge's reason for sorting it so.
+     sortWhy: string | null
+     // The judgment that sorted it.
+     sortedBy: string | null
    }[]
  }
 ```

@@ -8,7 +8,6 @@ import {
   checkName,
   checkSkill,
   DEFAULT_MAX_CHARS,
-  FEEDBACK_BATCH,
   frontmatter,
   HONER_AUTHOR,
   prefixOf,
@@ -26,6 +25,7 @@ import {
   Refusal,
   SKILL_FILE,
   textSize,
+  unsorted,
   type DraftFile,
   type Evidence,
   type Feedback,
@@ -59,7 +59,6 @@ export interface SearchResult extends SkillSummary {
 /** What happens next to a piece of feedback, so the agent that sent it is told the truth. */
 export type Next =
   | { kind: "revising" }
-  | { kind: "waiting"; more: number }
   | { kind: "admin" }
   | { kind: "off" };
 
@@ -317,7 +316,7 @@ export class Hub {
       draft,
       author: input.author?.trim() || ANONYMOUS,
       at: now(),
-      judgment: null,
+      ...unsorted,
     };
     this.store.addFeedback(f);
     this.schedule(name);
@@ -327,9 +326,7 @@ export class Hub {
   private next(name: string, drafted: boolean): Next {
     if (!this.judge) return { kind: "off" };
     if (name === HONER_SKILL) return { kind: "admin" };
-    const waiting = this.store.waiting(name);
-    if (drafted || !this.store.skill(name) || waiting.some((f) => f.draft.length) || waiting.length >= FEEDBACK_BATCH) return { kind: "revising" };
-    return { kind: "waiting", more: FEEDBACK_BATCH - waiting.length };
+    return { kind: "revising" };
   }
 
   // What a person does
@@ -461,11 +458,10 @@ export class Hub {
     this.running.set(name, run);
   }
 
-  /** A draft, or a skill not yet made, is judged at once; plain feedback waits for a few more like it. */
+  /** Feedback not yet sorted is judged at once; an admin's ask judges a skill whatever is waiting. */
   private due(c: Case, force: boolean): boolean {
     if (force) return c.files.length > 0;
-    if (c.feedback.length === 0) return false;
-    return c.files.length === 0 || c.feedback.some((f) => f.draft.length > 0) || c.feedback.length >= FEEDBACK_BATCH;
+    return c.feedback.length > 0;
   }
 
   /** The other skills the judge checks for overlap: all of them in a small library, else the closest by text. */
@@ -475,7 +471,8 @@ export class Hub {
     return near.map((s) => ({ name: s.name, description: s.description }));
   }
 
-  private async gather(name: string, failure: string | null): Promise<Case> {
+  /** The case for a skill: its unsorted feedback, or, when an admin asks, everything waiting, held reports included. */
+  private async gather(name: string, failure: string | null, approved = false): Promise<Case> {
     const version = this.store.skill(name)?.version ?? 0;
     return {
       skill: name,
@@ -483,7 +480,8 @@ export class Hub {
       maxChars: this.limit(name),
       files: await this.files(name, version),
       others: this.neighbours(name),
-      feedback: this.store.waiting(name),
+      feedback: approved ? this.store.waiting(name) : this.store.unsorted(name),
+      approved,
       precedent: this.store
         .judgments(name, PRECEDENT * 2)
         .filter((j) => j.state === "done" && j.by === "judge")
@@ -498,7 +496,7 @@ export class Hub {
   private async judgeSkill(name: string, force: boolean): Promise<void> {
     let failure: string | null = null;
     for (let attempt = 1; attempt <= JUDGMENT_ATTEMPTS; attempt++) {
-      const c = await this.gather(name, failure);
+      const c = await this.gather(name, failure, force);
       if (!this.due(c, force)) return;
       const j = this.started(name, "judge");
       this.log(`honing ${name}${attempt > 1 ? ` (attempt ${attempt})` : ""}…`);
@@ -543,6 +541,7 @@ export class Hub {
   /** Makes a decision so, if the skill is still the version it was made on and the result is a skill honed can keep. */
   private async apply(c: Case, j: Judgment, d: Decision): Promise<void> {
     if ((this.store.skill(c.skill)?.version ?? 0) !== c.version) throw new Outdated(`${c.skill} changed while the judge was deciding`);
+    const sorts = checkSorts(c, d);
     j.reasoning = d.reasoning;
     if (d.revert_to !== 0) {
       j.version = await this.revertFor(c, j, d);
@@ -552,7 +551,15 @@ export class Hub {
       checkSkill(c.skill, files, c.maxChars, textSize(c.files));
       j.version = await this.commit(c.skill, files, d.note.trim() || "Changed from feedback", j);
     }
-    this.finish(j, d.changed, c.feedback.map((f) => f.id));
+    // A judgment report stays waiting, unless an admin asked: that is the agreement it waits for.
+    const held = c.approved ? [] : c.feedback.filter((f) => sorts.get(f.id)?.kind === "judgment");
+    this.store.transaction(() => {
+      for (const f of c.feedback) {
+        const s = sorts.get(f.id);
+        if (s) this.store.sortFeedback(f.id, s.kind, s.why, j.id);
+      }
+    });
+    this.finish(j, d.changed, c.feedback.filter((f) => !held.includes(f)).map((f) => f.id));
     // One level of self-review: the honer may give feedback on its guidance while revising any other skill, never while revising its guidance.
     const reflection = d.honer_feedback.trim();
     if (reflection && c.skill !== HONER_SKILL && this.store.skill(HONER_SKILL)) {
@@ -567,10 +574,34 @@ export class Hub {
         draft: [],
         author: `${HONER_AUTHOR} (revising ${c.skill})`,
         at: now(),
-        judgment: null,
+        ...unsorted,
       });
     }
   }
 }
 
 class Outdated extends Error {}
+
+/**
+ * How the judge sorted each report in the case, refusing a decision that leaves one unsorted, names one not in the
+ * case, or revises an existing skill with no checkable report, unless an admin asked.
+ */
+function checkSorts(c: Case, d: Decision): Map<string, { kind: "checkable" | "judgment"; why: string }> {
+  const byShort = new Map(c.feedback.map((f) => [f.id.slice(0, 8), f]));
+  const sorts = new Map<string, { kind: "checkable" | "judgment"; why: string }>();
+  for (const s of d.sorted) {
+    const f = byShort.get(s.report.trim().slice(0, 8));
+    if (!f) throw new Refusal(`sorted names report ${s.report}, which is not in this case: sort only the reports in <new_feedback>, by their id`);
+    sorts.set(f.id, { kind: s.kind, why: s.why.trim() });
+  }
+  const reports = c.feedback.filter((f) => f.quote !== null);
+  if (!c.approved) {
+    const missing = reports.filter((f) => !sorts.has(f.id));
+    if (missing.length) throw new Refusal(`sort every report as checkable or judgment, with why: ${missing.map((f) => f.id.slice(0, 8)).join(", ")} ${missing.length === 1 ? "is" : "are"} not sorted`);
+    const changes = d.changed || d.revert_to !== 0;
+    if (changes && c.files.length > 0 && reports.length > 0 && !reports.some((f) => sorts.get(f.id)?.kind === "checkable")) {
+      throw new Refusal("every report here is a judgment call, and a judgment call revises no skill on its own: it waits for separate sessions or an admin to agree. Leave the skill unchanged");
+    }
+  }
+  return sorts;
+}

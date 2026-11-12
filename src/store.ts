@@ -28,6 +28,9 @@ const COLUMNS: { table: string; column: string; definition: string }[] = [
   { table: "feedback", column: "evidence", definition: "TEXT NOT NULL DEFAULT '[]'" },
   { table: "feedback", column: "what_changed", definition: "TEXT" },
   { table: "skills", column: "max_chars", definition: "INTEGER" },
+  { table: "feedback", column: "sort", definition: "TEXT" },
+  { table: "feedback", column: "sort_why", definition: "TEXT" },
+  { table: "feedback", column: "sorted_by", definition: "TEXT" },
 ];
 
 export interface Token {
@@ -76,6 +79,9 @@ const feedback = (r: Row): Feedback => ({
   author: s(r.author),
   at: s(r.at),
   judgment: sn(r.judgment),
+  sort: sn(r.sort) as Feedback["sort"],
+  sortWhy: sn(r.sort_why),
+  sortedBy: sn(r.sorted_by),
 });
 const judgment = (r: Row): Judgment => ({
   id: s(r.id),
@@ -174,7 +180,7 @@ export class Store {
   }
   addFeedback(f: Feedback): void {
     this.run(
-      "INSERT INTO feedback (id, skill, version, text, quote, evidence, what_changed, draft, author, at, judgment) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+      "INSERT INTO feedback (id, skill, version, text, quote, evidence, what_changed, draft, author, at, judgment, sort, sort_why, sorted_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
       f.id,
       f.skill,
       f.version,
@@ -186,7 +192,22 @@ export class Store {
       f.author,
       f.at,
       f.judgment,
+      f.sort,
+      f.sortWhy,
+      f.sortedBy,
     );
+  }
+  /** Feedback not yet considered or sorted, oldest first: what calls for a judgment. */
+  unsorted(name: string): Feedback[] {
+    return this.all("SELECT * FROM feedback WHERE judgment IS NULL AND sort IS NULL AND skill = ? ORDER BY at", name).map(feedback);
+  }
+  /** Records how a judgment sorted a report, and why. */
+  sortFeedback(id: string, sort: "checkable" | "judgment", sortWhy: string, judgment: string): void {
+    this.run("UPDATE feedback SET sort = ?, sort_why = ?, sorted_by = ? WHERE id = ?", sort, sortWhy, judgment, id);
+  }
+  /** Reports a judgment sorted as judgment and held back, oldest first. */
+  heldBy(judgment: string): Feedback[] {
+    return this.all("SELECT * FROM feedback WHERE sorted_by = ? AND judgment IS NULL ORDER BY at", judgment).map(feedback);
   }
   /** Whether any agent has ever submitted feedback: until one has, nothing has connected. */
   anyFeedback(): boolean {
