@@ -461,6 +461,129 @@ describe("a skill's own limit", () => {
   });
 });
 
+describe("a protected skill", () => {
+  /** Makes `x` at v1, protected, and a report with a draft on it held as a revision. */
+  async function held(body = "Better.") {
+    await hub.submitFeedback({ skill: "x", text: "make it", files: draft("x") });
+    await hub.idle();
+    assert.equal(hub.setProtected("x", true).protected, true);
+    const { feedback, next } = await hub.submitFeedback({ ...(await on("x")), files: draft("x", body) });
+    assert.deepEqual(next, { kind: "protected" });
+    await hub.idle();
+    return feedback;
+  }
+
+  test("holds the honer's revision for an admin: the current version is what agents read, and feedback waits", async () => {
+    const f = await held();
+    assert.equal(hub.skill("x").version, 1);
+    assert.match((await hub.current("x"))[0]!.content, /Do the thing\./);
+    const pending = hub.pending("x")!;
+    assert.equal(pending.version, 1);
+    assert.match(pending.files[0]!.content, /Better\./);
+    const j = hub.judgment(pending.judgment);
+    assert.equal(j.state, "pending");
+    assert.equal(j.version, null);
+    assert.equal(j.reasoning, "Supported.");
+    assert.equal(hub.store.feedbackOf(j.id)[0]?.id, f.id);
+    assert.deepEqual([hub.list()[0]!.protected, hub.list()[0]!.pending], [true, true]);
+
+    // No second revision is drafted while one waits, even asked for.
+    judge.cases = [];
+    await hub.submitFeedback({ ...(await on("x")), files: draft("x", "Other.") });
+    hub.judgeNow("x");
+    await hub.idle();
+    assert.equal(judge.cases.length, 0);
+    assert.equal(hub.store.waiting("x").length, 1);
+  });
+
+  test("an approved revision is kept as the next version, recorded with who approved it, and feedback is revised again", async () => {
+    await held();
+    const j = await hub.approve("x", "Reads right.", "dakota");
+    assert.equal(j.state, "done");
+    assert.equal(j.changed, true);
+    assert.equal(j.version, 2);
+    assert.deepEqual({ by: j.review!.by, approved: j.review!.approved, reason: j.review!.reason }, { by: "dakota", approved: true, reason: "Reads right." });
+    assert.equal(hub.judgment(j.id).review?.approved, true);
+    assert.equal(hub.skill("x").version, 2);
+    assert.match((await hub.current("x"))[0]!.content, /Better\./);
+    assert.equal(hub.store.versions("x")[0]!.judgment, j.id);
+    assert.equal(hub.pending("x"), undefined);
+    await assert.rejects(hub.approve("x", ""), /no revision of x is waiting/);
+
+    await hub.submitFeedback({ ...(await on("x")), files: draft("x", "Best.") });
+    await hub.idle();
+    assert.match(hub.pending("x")!.files[0]!.content, /Best\./);
+  });
+
+  test("a declined revision is discarded, the skill left as it was, and the decline kept in its history", async () => {
+    const f = await held();
+    const id = hub.pending("x")!.judgment;
+    const j = await hub.decline("x", "Not what we do.", "dakota");
+    assert.equal(j.id, id);
+    assert.equal(j.state, "done");
+    assert.equal(j.changed, false);
+    assert.equal(j.version, null);
+    assert.deepEqual([j.review!.by, j.review!.approved, j.review!.reason], ["dakota", false, "Not what we do."]);
+    assert.equal(hub.skill("x").version, 1);
+    assert.equal(hub.pending("x"), undefined);
+    assert.equal(hub.store.feedbackOf(id)[0]?.id, f.id);
+    assert.match(hub.store.pendingOf(id)!.files[0]!.content, /Better\./);
+  });
+
+  test("an admin's edit applies at once, and a revision made from the version before it can then only be declined", async () => {
+    await held();
+    await hub.edit("x", { write: [{ path: "SKILL.md", content: skillMd("x", "By hand.") }] }, "Fix.", "dakota");
+    assert.equal(hub.skill("x").version, 2);
+    await assert.rejects(hub.approve("x", ""), (e: Refusal) => e.status === 409 && /changed since this revision was made from v1/.test(e.message));
+    await hub.decline("x", "Outdated.");
+    assert.match((await hub.current("x"))[0]!.content, /By hand\./);
+  });
+
+  test("unprotected, a skill is revised from feedback at once again", async () => {
+    await held();
+    await hub.decline("x", "");
+    hub.setProtected("x", false);
+    await hub.submitFeedback({ ...(await on("x")), files: draft("x", "Now.") });
+    await hub.idle();
+    assert.equal(hub.skill("x").version, 2);
+    assert.equal(hub.pending("x"), undefined);
+  });
+
+  test("a judgment report beside the checkable one stays held for agreement, not considered by the held revision", async () => {
+    await hub.submitFeedback({ skill: "x", text: "make it", files: draft("x") });
+    await hub.idle();
+    hub.setProtected("x", true);
+    // The first case is refused (no report sorted), so the retry gathers the report sent meanwhile too.
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    judge.decide_ = async (c) => {
+      if (!c.failure) {
+        await gate;
+        return noChange;
+      }
+      return { ...takeDraft(c), sorted: c.feedback.filter((f) => f.quote !== null).map((f) => ({ report: f.id.slice(0, 8), kind: f.draft.length ? "checkable" : "judgment", why: "-" })) };
+    };
+    judge.cases = [];
+    const { feedback: checkable } = await hub.submitFeedback({ ...(await on("x")), files: draft("x", "Better.") });
+    const { feedback: taste } = await hub.submitFeedback({ ...(await on("x")), whatChanged: "I'd rather it were shorter." });
+    release();
+    await hub.idle();
+    assert.deepEqual(judge.cases.map((c) => c.feedback.length), [1, 2], "both reports in the retry");
+    const j = hub.pending("x")!.judgment;
+    assert.deepEqual(hub.store.feedbackOf(j).map((f) => f.id), [checkable.id]);
+    const waiting = hub.store.waiting("x");
+    assert.ok(waiting.some((f) => f.id === taste.id && f.sort === "judgment" && f.judgment === null), "the judgment call still waits");
+  });
+
+  test("a deleted skill's held revision is declined by the deletion", async () => {
+    await held();
+    const id = hub.pending("x")!.judgment;
+    await hub.delete("x", "Gone.", "dakota");
+    assert.equal(hub.judgment(id).review?.approved, false);
+    assert.equal(hub.store.pending("x"), undefined);
+  });
+});
+
 describe("a person", () => {
   test("reverts a skill, recorded as theirs, and nothing else changes it without the judge", async () => {
     hub.close();
@@ -501,7 +624,7 @@ describe("search", () => {
 test("a server reopened on the same folder keeps everything, judges what was waiting, and fails what it left running", async () => {
   await hub.submitFeedback({ ...(await on("x")), text: "make it", files: draft("x") });
   await hub.idle();
-  hub.store.putJudgment({ id: "stuck", skill: "x", by: "judge", actor: null, state: "running", startedAt: "2026-01-01T00:00:00.000Z", finishedAt: null, changed: null, reasoning: "", error: null, version: null });
+  hub.store.putJudgment({ id: "stuck", skill: "x", by: "judge", actor: null, state: "running", startedAt: "2026-01-01T00:00:00.000Z", finishedAt: null, changed: null, reasoning: "", error: null, version: null, review: null });
   hub.close();
   hub = await Hub.open(dir, null, { starters: false });
   await hub.submitFeedback({ ...(await on("x")), text: "waiting", files: draft("x", "next") });

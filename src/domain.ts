@@ -40,6 +40,28 @@ export interface Skill {
   createdAt: string;
   /** The most text it may hold, set by an admin; null for the library's default. */
   maxChars: number | null;
+  /** Set by an admin: a revision the honer makes from feedback waits for an admin's approval before it is kept. */
+  protected: boolean;
+}
+
+/** A revision the honer made of a protected skill, held until an admin approves or declines it. */
+export interface PendingRevision {
+  /** The judgment that made it. */
+  judgment: string;
+  skill: string;
+  /** The version it was made from: it can be kept only while the skill is still that version. */
+  version: number;
+  note: string;
+  files: SkillFile[];
+  at: string;
+}
+
+/** An admin's decision on a held revision. */
+export interface Review {
+  by: string;
+  approved: boolean;
+  reason: string;
+  at: string;
 }
 
 /** One change to a file's text: `old`, found once in the file, becomes `new`. */
@@ -98,7 +120,8 @@ export interface Judgment {
   by: "judge" | "person" | "starter";
   /** For a person's ruling, whose token made it. */
   actor: string | null;
-  state: "running" | "done" | "failed";
+  /** "pending": a revision of a protected skill, made and held until an admin approves or declines it. */
+  state: "running" | "pending" | "done" | "failed";
   startedAt: string;
   finishedAt: string | null;
   changed: boolean | null;
@@ -106,6 +129,8 @@ export interface Judgment {
   error: string | null;
   /** The version it made, if it made one. */
   version: number | null;
+  /** For a held revision of a protected skill, the admin's decision on it; null until then, and for every other judgment. */
+  review: Review | null;
 }
 
 /** How a report is named in reasoning and history: its short id and who sent it. */

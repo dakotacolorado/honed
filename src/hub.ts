@@ -30,6 +30,7 @@ import {
   type Evidence,
   type Feedback,
   type Judgment,
+  type PendingRevision,
   type Skill,
   type SkillFile,
 } from "./domain.ts";
@@ -48,6 +49,10 @@ export interface SkillSummary {
   feedback: number;
   /** Feedback no revision has considered yet. */
   waiting: number;
+  /** Whether a revision from feedback waits for an admin's approval before it is kept. */
+  protected: boolean;
+  /** Whether a revision of it is waiting for an admin now. */
+  pending: boolean;
   updatedAt: string;
 }
 
@@ -60,6 +65,7 @@ export interface SearchResult extends SkillSummary {
 export type Next =
   | { kind: "revising" }
   | { kind: "admin" }
+  | { kind: "protected" }
   | { kind: "off" };
 
 export interface HubOptions {
@@ -222,6 +228,8 @@ export class Hub {
       limit: s.maxChars ?? this.maxChars,
       feedback: this.store.feedbackCount(s.name, s.version),
       waiting: this.store.waiting(s.name).length,
+      protected: s.protected,
+      pending: this.store.pending(s.name) !== undefined,
       updatedAt: this.store.version(s.name, s.version)?.at ?? s.createdAt,
     };
   }
@@ -326,6 +334,7 @@ export class Hub {
   private next(name: string, drafted: boolean): Next {
     if (!this.judge) return { kind: "off" };
     if (name === HONER_SKILL) return { kind: "admin" };
+    if (this.store.skill(name)?.protected) return { kind: "protected" };
     return { kind: "revising" };
   }
 
@@ -381,9 +390,11 @@ export class Hub {
       const j = this.started(name, "person", actor);
       j.reasoning = reason.trim() || `Deleted at version ${skill.version}.`;
       await this.library.remove(name, `${name}: deleted\n\nJudgment: ${j.id}`);
+      const held = this.store.pending(name);
       this.store.transaction(() => {
         this.store.deleteSkill(name);
         this.store.unindex(name);
+        if (held) this.decide(this.judgment(held.judgment), held, false, "The skill was deleted.", actor);
       });
       this.descriptions.delete(name);
       this.sizes.delete(name);
@@ -405,6 +416,63 @@ export class Hub {
     return this.skill(name);
   }
 
+  /**
+   * An admin's flag on a skill: while it is set, a revision the honer makes from feedback is held for an admin to approve
+   * or decline, and agents go on reading the current version. An admin's own edits and reverts apply at once.
+   */
+  setProtected(name: string, value: boolean): Skill {
+    this.skill(name);
+    this.store.setProtected(name, value);
+    if (!value) this.schedule(name);
+    return this.skill(name);
+  }
+
+  /** The revision of a skill held for an admin, if one is. */
+  pending(name: string): PendingRevision | undefined {
+    return this.store.pending(name);
+  }
+
+  /** Keeps a held revision as the skill's next version, if the skill is still the version it was made from. */
+  approve(name: string, reason: string, actor = "you"): Promise<Judgment> {
+    return this.exclusive(async () => {
+      const skill = this.skill(name);
+      const held = this.held(name);
+      if (held.version !== skill.version) {
+        throw new Refusal(`${name} changed since this revision was made from v${held.version} (it is v${skill.version} now), so it cannot be kept as it is: decline it, and the honer revises the current version when feedback calls for it`, 409);
+      }
+      checkSkill(name, held.files, this.limit(name), textSize(await this.current(name)));
+      const j = this.judgment(held.judgment);
+      j.version = await this.commit(name, held.files, held.note, j);
+      this.store.transaction(() => this.decide(j, held, true, reason, actor));
+      this.schedule(name);
+      return j;
+    });
+  }
+
+  /** Discards a held revision: the skill stays as it is, and the decision is kept in its history. */
+  decline(name: string, reason: string, actor = "you"): Promise<Judgment> {
+    return this.exclusive(async () => {
+      this.skill(name);
+      const held = this.held(name);
+      const j = this.judgment(held.judgment);
+      this.store.transaction(() => this.decide(j, held, false, reason, actor));
+      this.schedule(name);
+      return j;
+    });
+  }
+
+  private held(name: string): PendingRevision {
+    const held = this.store.pending(name);
+    if (!held) throw new Refusal(`no revision of ${name} is waiting for approval`, 404);
+    return held;
+  }
+
+  private decide(j: Judgment, held: PendingRevision, approved: boolean, reason: string, actor: string): void {
+    Object.assign(j, { state: "done", finishedAt: now(), changed: approved, review: { by: actor, approved, reason: reason.trim(), at: now() } });
+    this.store.putJudgment(j);
+    this.store.closePending(held.judgment);
+  }
+
   /** Has the judge look at a skill now, whatever feedback is waiting. */
   judgeNow(name: string): void {
     if (!this.judge) throw new Refusal("this server was started without a judge", 409);
@@ -415,7 +483,7 @@ export class Hub {
   // Judging
 
   private started(skill: string, by: Judgment["by"], actor: string | null = null): Judgment {
-    const j: Judgment = { id: newId(), skill, by, actor, state: "running", startedAt: now(), finishedAt: null, changed: null, reasoning: "", error: null, version: null };
+    const j: Judgment = { id: newId(), skill, by, actor, state: "running", startedAt: now(), finishedAt: null, changed: null, reasoning: "", error: null, version: null, review: null };
     this.store.putJudgment(j);
     return j;
   }
@@ -432,6 +500,17 @@ export class Hub {
     return version;
   }
 
+  /** A protected skill's revision, held for an admin instead of kept: the feedback is considered, the skill unchanged until approval. */
+  private hold(c: Case, j: Judgment, change: { files: SkillFile[]; note: string }, feedback: string[]): void {
+    this.store.transaction(() => {
+      this.store.addPending({ judgment: j.id, skill: c.skill, version: c.version, note: change.note, files: change.files, at: now() });
+      this.store.consider(feedback, j.id);
+      Object.assign(j, { state: "pending", finishedAt: now() });
+      this.store.putJudgment(j);
+    });
+    this.log(`${c.skill} is protected: its revision waits for an admin's approval`);
+  }
+
   private finish(j: Judgment, changed: boolean, feedback: string[]): void {
     this.store.transaction(() => {
       this.store.consider(feedback, j.id);
@@ -445,6 +524,8 @@ export class Hub {
     if (!this.judge) return;
     // The honer does not revise its own guidance on its own: feedback on it waits for an admin.
     if (name === HONER_SKILL && !force) return;
+    // A protected skill is revised again only once an admin has decided on the revision it holds.
+    if (this.store.pending(name)) return;
     if (this.running.has(name)) {
       this.dirty.add(name);
       return;
@@ -503,7 +584,7 @@ export class Hub {
       try {
         const decision = await this.judge!.decide(c);
         await this.exclusive(() => this.apply(c, j, decision));
-        this.log(j.changed ? `${name} honed → v${j.version}: ${decision.note.trim() || "changed from feedback"}` : `${name} unchanged: the feedback is kept for next time`);
+        if (j.state !== "pending") this.log(j.changed ? `${name} honed → v${j.version}: ${decision.note.trim() || "changed from feedback"}` : `${name} unchanged: the feedback is kept for next time`);
         return;
       } catch (e) {
         Object.assign(j, { state: "failed", finishedAt: now(), error: e instanceof Error ? e.message : String(e) });
@@ -522,7 +603,7 @@ export class Hub {
    * The judge's revert: the skill's files at `revert_to`, as a new version. Its reasoning names the reports behind each
    * version it undoes and the reports that contradicted them, so the history says which report undid which.
    */
-  private async revertFor(c: Case, j: Judgment, d: Decision): Promise<number> {
+  private async revertFor(c: Case, j: Judgment, d: Decision): Promise<{ files: SkillFile[]; note: string }> {
     const to = d.revert_to;
     if (!d.changed) throw new Refusal("revert_to restores an earlier version, a change: set changed true, or revert_to 0");
     if (d.edits.length || d.write.length || d.remove.length) throw new Refusal("revert_to restores an earlier version whole: leave edits, write and remove empty, or revert_to 0 and edit");
@@ -535,7 +616,7 @@ export class Hub {
       .flatMap((v) => this.store.feedbackOf(v.judgment).map((f) => `${reportName(f)} (v${v.version})`));
     const by = c.feedback.map(reportName);
     j.reasoning = [d.reasoning.trim(), `Reverts to v${to}, undoing ${undone.join(", ") || "changes made without a report"}; contradicted by ${by.join(", ") || "no new report"}.`].filter(Boolean).join("\n\n");
-    return this.commit(c.skill, files, d.note.trim() || `Revert to version ${to}`, j);
+    return { files, note: d.note.trim() || `Revert to version ${to}` };
   }
 
   /** Makes a decision so, if the skill is still the version it was made on and the result is a skill honed can keep. */
@@ -543,14 +624,18 @@ export class Hub {
     if ((this.store.skill(c.skill)?.version ?? 0) !== c.version) throw new Outdated(`${c.skill} changed while the judge was deciding`);
     const sorts = checkSorts(c, d);
     j.reasoning = d.reasoning;
+    let change: { files: SkillFile[]; note: string } | null = null;
     if (d.revert_to !== 0) {
-      j.version = await this.revertFor(c, j, d);
+      change = await this.revertFor(c, j, d);
     } else if (d.changed) {
       if (d.edits.length === 0 && d.write.length === 0 && d.remove.length === 0) throw new Error("the judge said it changed the skill but edited, wrote and removed nothing");
       const files = applyFiles(applyEdits(c.files, d.edits), d.write, d.remove);
       checkSkill(c.skill, files, c.maxChars, textSize(c.files));
-      j.version = await this.commit(c.skill, files, d.note.trim() || "Changed from feedback", j);
+      change = { files, note: d.note.trim() || "Changed from feedback" };
     }
+    const protect = change !== null && this.store.skill(c.skill)?.protected === true;
+    if (change && protect && sameFiles(c.files, change.files)) throw new Refusal("the change leaves the skill as it is", 409);
+    if (change && !protect) j.version = await this.commit(c.skill, change.files, change.note, j);
     // A judgment report stays waiting, unless an admin asked: that is the agreement it waits for.
     const held = c.approved ? [] : c.feedback.filter((f) => sorts.get(f.id)?.kind === "judgment");
     this.store.transaction(() => {
@@ -559,7 +644,9 @@ export class Hub {
         if (s) this.store.sortFeedback(f.id, s.kind, s.why, j.id);
       }
     });
-    this.finish(j, d.changed, c.feedback.filter((f) => !held.includes(f)).map((f) => f.id));
+    const considered = c.feedback.filter((f) => !held.includes(f)).map((f) => f.id);
+    if (change && protect) this.hold(c, j, change, considered);
+    else this.finish(j, d.changed, considered);
     // One level of self-review: the honer may give feedback on its guidance while revising any other skill, never while revising its guidance.
     const reflection = d.honer_feedback.trim();
     if (reflection && c.skill !== HONER_SKILL && this.store.skill(HONER_SKILL)) {
@@ -605,3 +692,9 @@ function checkSorts(c: Case, d: Decision): Map<string, { kind: "checkable" | "ju
   }
   return sorts;
 }
+
+/** Whether two sets of a skill's files are the same, path, text and executable bit. */
+const sameFiles = (a: SkillFile[], b: SkillFile[]) => {
+  const key = (files: SkillFile[]) => JSON.stringify([...files].sort((x, y) => x.path.localeCompare(y.path)).map((f) => [f.path, f.content, f.executable]));
+  return key(a) === key(b);
+};

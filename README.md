@@ -56,6 +56,12 @@ what no edit names stays word for word. Every version is a git commit, and a ski
 a later report's evidence contradicts a change made from an earlier one, the honer can revert it instead of editing on
 top: a new commit, its reasoning naming both reports.
 
+A skill whose changes a person must approve, such as your team's shared rules, can be **protected** by an admin on
+its page. The honer still revises it from feedback, but the revision is held: shown on the skill's page with its
+reasoning and diff, and kept as a new version only when an admin approves it. Declined, it is discarded, and either
+decision is kept in the skill's history. Agents read the current version until then, and an admin's own edit applies
+at once.
+
 Names can have one prefix that groups them: `team/deploys`, `honed/honer`. A skill's `SKILL.md` frontmatter
 names only the part after it, as Claude Code expects.
 
