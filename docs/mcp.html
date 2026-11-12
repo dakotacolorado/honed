@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>honed MCP server</title>
+<!-- Generated from src/mcp.ts by `npm run spec`; do not edit. -->
+<style>
+:root{color-scheme:light dark}
+body{font:14px/1.5 system-ui,sans-serif;max-width:960px;margin:0 auto;padding:24px;color:#1b2328;background:#f5f7f8}
+a{color:#0b7a75}code,pre{font-family:ui-monospace,monospace;font-size:13px}pre,blockquote{background:#eef2f4;padding:10px 14px;border-radius:6px;overflow:auto}
+blockquote{white-space:pre-wrap;margin:0}table{border-collapse:collapse;width:100%;margin:8px 0 20px}td,th{border:1px solid #dde3e7;padding:4px 8px;text-align:left;vertical-align:top}
+.ro{font-size:11px;border:1px solid #0b7a75;color:#0b7a75;border-radius:4px;padding:0 6px;font-weight:normal}section{border-top:1px solid #dde3e7;padding-top:6px}
+@media (prefers-color-scheme: dark){body{color:#e3eaee;background:#0f1417}a{color:#4fd1c5}pre,blockquote{background:#0b1013}td,th,section{border-color:#253038}.ro{border-color:#4fd1c5;color:#4fd1c5}}
+</style></head><body>
+<h1>honed's MCP server</h1>
+<p>Streamable HTTP at <code>/mcp</code>, stateless, answering JSON. A honed with no tokens, started on this machine alone, needs none and answers only <code>127.0.0.1</code>, <code>localhost</code> or <code>[::1]</code>; once it has tokens, every request carries one as <code>Authorization: Bearer honed_…</code>, from <code>honed token create</code>. Feedback is recorded as from that token's name. <code>x-honed-namespaces</code> names the namespaces a session's repo uses, comma-separated: it sees the skills in them and honed's own <code>honed/</code>, and no others. Without it, a session sees only <code>honed/</code>. A refusal comes back as the tool's error, in the server's words.</p>
+<p>Claude Code connects with the honed plugin (<code>claude plugin install honed@honed</code>), which also asks each session for feedback. A repo binds its sessions to its namespaces by committing a <code>.mcp.json</code> at its root, with each person's token in <code>HONED_TOKEN</code> in their environment (on a honed with no tokens, leave out <code>Authorization</code>):</p>
+<pre>{
+  &quot;mcpServers&quot;: {
+    &quot;honed&quot;: {
+      &quot;type&quot;: &quot;http&quot;,
+      &quot;url&quot;: &quot;http://127.0.0.1:4321/mcp&quot;,
+      &quot;headers&quot;: {
+        &quot;Authorization&quot;: &quot;Bearer ${HONED_TOKEN}&quot;,
+        &quot;X-Honed-Namespaces&quot;: &quot;your-project, shared&quot;
+      }
+    }
+  }
+}</pre>
+<p>The contract is <a href="../mcp.json"><code>mcp.json</code></a>; the JSON API's docs are <a href="./api">here</a>.</p>
+<h2>Instructions</h2><p>What the server tells an agent when it connects. The first part is the same for every session; the rest names the skills the session is bound to. Here, as a session bound to no namespace sees it, on an empty library:</p><blockquote>honed is your organization's shared skills library, and it improves from your feedback.
+
+- Before a task, search_skills for what it is about (or list_skills), and get_skill any whose description fits. Follow what you read.
+- After using a skill, submit_feedback only when it fell short: it was wrong, it left out something you had to find out, or a person or a check corrected you on what it covers. Quote the skill's text it is about exactly, show the evidence (a file as it is now, or a command and what it printed), and say what you did instead. If it simply worked, or your advice is something any capable agent does anyway, send nothing. Include files when you know the exact fix. Never include secrets or personal details.
+- To add a skill, read honed/skill-writing first, then submit_feedback under the new name with a draft of its SKILL.md.
+
+This session's repo is bound to no namespace, so it sees only honed's own honed/ skills:
+- none
+
+To bind a repo to the namespaces it uses (its own, plus any shared ones), commit this .mcp.json at its root, with your namespaces in x-honed-namespaces, and set HONED_TOKEN in each person's environment:
+{
+  &quot;mcpServers&quot;: {
+    &quot;honed&quot;: {
+      &quot;type&quot;: &quot;http&quot;,
+      &quot;url&quot;: &quot;http://127.0.0.1:4321/mcp&quot;,
+      &quot;headers&quot;: {
+        &quot;Authorization&quot;: &quot;Bearer ${HONED_TOKEN}&quot;,
+        &quot;X-Honed-Namespaces&quot;: &quot;your-project, shared&quot;
+      }
+    }
+  }
+}</blockquote>
+<h2>Tools</h2><ul><li><a href="#list_skills"><code>list_skills</code></a> List skills</li><li><a href="#search_skills"><code>search_skills</code></a> Search skills</li><li><a href="#get_skill"><code>get_skill</code></a> Get a skill</li><li><a href="#submit_feedback"><code>submit_feedback</code></a> Submit feedback on a skill</li></ul>
+<section id="list_skills"><h3><code>list_skills</code> <span class="ro">reads only</span></h3><p>Every skill this repo is bound to, with its description.</p><p>No input.</p></section>
+<section id="search_skills"><h3><code>search_skills</code> <span class="ro">reads only</span></h3><p>Skills whose name, description or text match any word of query, best first, with where each matched.</p><table><thead><tr><th>Input</th><th>Type</th><th>Required</th><th></th></tr></thead><tbody><tr><td><code>query</code></td><td>string</td><td>yes</td><td></td></tr><tr><td><code>limit</code></td><td>integer, at most 50</td><td></td><td></td></tr></tbody></table></section>
+<section id="get_skill"><h3><code>get_skill</code> <span class="ro">reads only</span></h3><p>A skill's SKILL.md and the paths of its other files; with path, that one file instead. To run a script, get it and run your copy.</p><table><thead><tr><th>Input</th><th>Type</th><th>Required</th><th></th></tr></thead><tbody><tr><td><code>name</code></td><td>string</td><td>yes</td><td></td></tr><tr><td><code>path</code></td><td>string</td><td></td><td>One file of the skill, e.g. scripts/check.sh. Omit for SKILL.md and the file list.</td></tr><tr><td><code>version</code></td><td>integer</td><td></td><td>An earlier version; omit for the latest.</td></tr></tbody></table></section>
+<section id="submit_feedback"><h3><code>submit_feedback</code></h3><p>Report where a skill's text is wrong or falls short: quote that text exactly, show the evidence, and say what you did instead. A report missing any of these, or quoting text the skill does not have, is refused with how to fix it; resubmit it fixed. Not for a skill that simply worked. Include files to suggest exact text. Under a name no skill has yet, it asks for that skill: say what it is for in feedback, follow honed/skill-writing and draft its SKILL.md; no quote is needed. Skills are revised from these reports.</p><table><thead><tr><th>Input</th><th>Type</th><th>Required</th><th></th></tr></thead><tbody><tr><td><code>name</code></td><td>string</td><td>yes</td><td>The skill, e.g. team/code-review: an optional prefix for its group, then lowercase letters, digits and hyphens.</td></tr><tr><td><code>quote</code></td><td>string</td><td></td><td>The exact text in the skill that is wrong or falls short, copied from get_skill: a whole sentence or line. Not needed for a new skill.</td></tr><tr><td><code>evidence</code></td><td>object[]</td><td></td><td>What shows the quote is wrong: each a file with its current contents, or a command with what it printed. Not needed for a new skill.</td></tr><tr><td><code>evidence[].path</code></td><td>string</td><td></td><td>A file that shows the quote is wrong, e.g. src/api.ts.</td></tr><tr><td><code>evidence[].content</code></td><td>string</td><td></td><td>That file's current contents, or the part that shows it.</td></tr><tr><td><code>evidence[].command</code></td><td>string</td><td></td><td>A command you ran, e.g. npm run lint.</td></tr><tr><td><code>evidence[].output</code></td><td>string</td><td></td><td>What the command actually printed.</td></tr><tr><td><code>what_changed</code></td><td>string</td><td></td><td>What you did instead of what the quote says, or what you changed that it describes. Not needed for a new skill.</td></tr><tr><td><code>feedback</code></td><td>string</td><td></td><td>Anything else worth knowing. For a new skill: what it is for.</td></tr><tr><td><code>files</code></td><td>object[]</td><td></td><td>Optional: files you suggest, each with its whole content.</td></tr><tr><td><code>files[].path</code></td><td>string</td><td>yes</td><td></td></tr><tr><td><code>files[].content</code></td><td>string</td><td>yes</td><td></td></tr><tr><td><code>files[].executable</code></td><td>boolean</td><td></td><td></td></tr><tr><td><code>author</code></td><td>string</td><td></td><td>Your role or task, e.g. reviewer on PR 12.</td></tr></tbody></table></section>
+</body></html>

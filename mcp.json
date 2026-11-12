@@ -1,0 +1,165 @@
+{
+  "instructions": "honed is your organization's shared skills library, and it improves from your feedback.\n\n- Before a task, search_skills for what it is about (or list_skills), and get_skill any whose description fits. Follow what you read.\n- After using a skill, submit_feedback only when it fell short: it was wrong, it left out something you had to find out, or a person or a check corrected you on what it covers. Quote the skill's text it is about exactly, show the evidence (a file as it is now, or a command and what it printed), and say what you did instead. If it simply worked, or your advice is something any capable agent does anyway, send nothing. Include files when you know the exact fix. Never include secrets or personal details.\n- To add a skill, read honed/skill-writing first, then submit_feedback under the new name with a draft of its SKILL.md.\n\nThis session's repo is bound to no namespace, so it sees only honed's own honed/ skills:\n- none\n\nTo bind a repo to the namespaces it uses (its own, plus any shared ones), commit this .mcp.json at its root, with your namespaces in x-honed-namespaces, and set HONED_TOKEN in each person's environment:\n{\n  \"mcpServers\": {\n    \"honed\": {\n      \"type\": \"http\",\n      \"url\": \"http://127.0.0.1:4321/mcp\",\n      \"headers\": {\n        \"Authorization\": \"Bearer ${HONED_TOKEN}\",\n        \"X-Honed-Namespaces\": \"your-project, shared\"\n      }\n    }\n  }\n}",
+  "tools": [
+    {
+      "name": "list_skills",
+      "title": "List skills",
+      "description": "Every skill this repo is bound to, with its description.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {}
+      },
+      "annotations": {
+        "readOnlyHint": true
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
+      "name": "search_skills",
+      "title": "Search skills",
+      "description": "Skills whose name, description or text match any word of query, best first, with where each matched.",
+      "inputSchema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "maximum": 50
+          }
+        },
+        "required": [
+          "query"
+        ]
+      },
+      "annotations": {
+        "readOnlyHint": true
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
+      "name": "get_skill",
+      "title": "Get a skill",
+      "description": "A skill's SKILL.md and the paths of its other files; with path, that one file instead. To run a script, get it and run your copy.",
+      "inputSchema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "path": {
+            "description": "One file of the skill, e.g. scripts/check.sh. Omit for SKILL.md and the file list.",
+            "type": "string"
+          },
+          "version": {
+            "description": "An earlier version; omit for the latest.",
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991
+          }
+        },
+        "required": [
+          "name"
+        ]
+      },
+      "annotations": {
+        "readOnlyHint": true
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
+      "name": "submit_feedback",
+      "title": "Submit feedback on a skill",
+      "description": "Report where a skill's text is wrong or falls short: quote that text exactly, show the evidence, and say what you did instead. A report missing any of these, or quoting text the skill does not have, is refused with how to fix it; resubmit it fixed. Not for a skill that simply worked. Include files to suggest exact text. Under a name no skill has yet, it asks for that skill: say what it is for in feedback, follow honed/skill-writing and draft its SKILL.md; no quote is needed. Skills are revised from these reports.",
+      "inputSchema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "The skill, e.g. team/code-review: an optional prefix for its group, then lowercase letters, digits and hyphens."
+          },
+          "quote": {
+            "description": "The exact text in the skill that is wrong or falls short, copied from get_skill: a whole sentence or line. Not needed for a new skill.",
+            "type": "string"
+          },
+          "evidence": {
+            "description": "What shows the quote is wrong: each a file with its current contents, or a command with what it printed. Not needed for a new skill.",
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "path": {
+                  "description": "A file that shows the quote is wrong, e.g. src/api.ts.",
+                  "type": "string"
+                },
+                "content": {
+                  "description": "That file's current contents, or the part that shows it.",
+                  "type": "string"
+                },
+                "command": {
+                  "description": "A command you ran, e.g. npm run lint.",
+                  "type": "string"
+                },
+                "output": {
+                  "description": "What the command actually printed.",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "what_changed": {
+            "description": "What you did instead of what the quote says, or what you changed that it describes. Not needed for a new skill.",
+            "type": "string"
+          },
+          "feedback": {
+            "description": "Anything else worth knowing. For a new skill: what it is for.",
+            "type": "string"
+          },
+          "files": {
+            "description": "Optional: files you suggest, each with its whole content.",
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "path": {
+                  "type": "string"
+                },
+                "content": {
+                  "type": "string"
+                },
+                "executable": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "path",
+                "content"
+              ]
+            }
+          },
+          "author": {
+            "description": "Your role or task, e.g. reviewer on PR 12.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name"
+        ]
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    }
+  ]
+}

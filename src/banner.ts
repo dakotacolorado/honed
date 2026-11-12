@@ -80,6 +80,7 @@ export function banner(b: BannerInfo): string {
     "",
     `  ${c.edge("▸")} Library   ${b.url}`,
     `  ${c.edge("▸")} API       ${b.url}/api/skills   docs ${b.url}/docs/api`,
+    `  ${c.edge("▸")} MCP       ${b.url}/mcp          docs ${b.url}/docs/mcp`,
     `  ${c.edge("▸")} Stored    ${tilde(b.dir)}`,
     "",
     c.bold("Connect Claude Code (once), with the honed plugin:"),

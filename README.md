@@ -115,7 +115,7 @@ answers only its own machine and needs none. **The first token switches honed to
 it is running**: agents connected without one get 401s until they send it.
 
 `honed --help` lists the options. Agents other than Claude Code can use honed as a plain MCP server at `/mcp`, with
-`Authorization: Bearer <token>` on a shared one.
+`Authorization: Bearer <token>` on a shared one: [`docs/MCP.md`](./docs/MCP.md) says how, with each tool's arguments.
 
 ## How it works
 
@@ -125,6 +125,13 @@ feedback, tokens and full-text search. When feedback calls for it, Claude revise
 headless on a dev machine, or the Claude API on a server), with no tools: it reads the skill, the feedback and its own
 past reasoning, and answers with a new version or no change, as JSON against a fixed schema.
 The server checks every answer against the same rules as any skill, the cap included, before it keeps it.
+
+## The MCP server
+
+Agents use honed through its MCP server at `/mcp`: the four tools above and the instructions it gives an agent when it
+connects. Its contract is [`mcp.json`](./mcp.json), `tools/list` as served, rendered in [`docs/MCP.md`](./docs/MCP.md);
+a running honed serves both at `/mcp.json` and `/docs/mcp`, the page giving that honed's own address, with no token
+needed.
 
 ## The API
 
@@ -144,9 +151,9 @@ npm run build
 npm run spec         # regenerates openapi.json and docs/ from the code; the pre-commit hook runs it
 ```
 
-`src/api.ts` declares every `/api` route, and is the source of `openapi.json`, `docs/API.md` and `docs/index.html`. A
-test fails if the committed contract differs from what honed serves, or if honed answers an `/api` route it does not
-declare.
+`src/api.ts` declares every `/api` route, and is the source of `openapi.json`, `docs/API.md` and `docs/index.html`;
+`src/mcp.ts` is the source of `mcp.json`, `docs/MCP.md` and `docs/mcp.html`. A test fails if a committed contract
+differs from what honed serves, or if honed answers an `/api` route it does not declare.
 
 ## License
 
