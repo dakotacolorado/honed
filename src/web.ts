@@ -518,6 +518,12 @@ function notFound(message: string): Html {
   return page("Not found · honed", html`<h1>Nothing here</h1><p class="muted">${message}.</p><p><a class="back" href="/">← all skills</a></p>`);
 }
 
+/** Where the caller reached this honed, as `https://host` behind a proxy that says it took HTTPS. */
+const originOf = (c: Context) => {
+  const url = new URL(c.req.url);
+  return c.req.header("x-forwarded-proto") === "https" ? `https://${url.host}` : url.origin;
+};
+
 const field = (body: Record<string, unknown>, key: string) => (typeof body[key] === "string" ? (body[key] as string) : "");
 
 export function app(hub: Hub, version: string, opts: AppOptions = {}): OpenAPIHono<Env> {
@@ -542,6 +548,11 @@ export function app(hub: Hub, version: string, opts: AppOptions = {}): OpenAPIHo
   describeApi(web, version);
   const apiDocs = shipped("docs/index.html");
   web.get("/docs/api", (c) => c.html(apiDocs()));
+  const mcpContract = shipped("mcp.json");
+  web.get("/mcp.json", (c) => c.body(mcpContract(), 200, { "content-type": "application/json; charset=utf-8" }));
+  // The page's example address is the default local one; served, it gives this deployment's own.
+  const mcpDocs = shipped("docs/mcp.html");
+  web.get("/docs/mcp", (c) => c.html(mcpDocs().replaceAll(DEFAULT_URL, originOf(c))));
 
   web.get("/login", (c) => c.html(loginPage()));
   web.post("/login", async (c) => {

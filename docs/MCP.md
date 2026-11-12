@@ -1,0 +1,93 @@
+# honed's MCP server
+
+<!-- Generated from src/mcp.ts by `npm run spec`; do not edit. -->
+
+Streamable HTTP at `/mcp`, stateless, answering JSON. A honed with no tokens, started on this machine alone, needs none and
+answers only `127.0.0.1`, `localhost` or `[::1]`; once it has tokens, every request carries one as
+`Authorization: Bearer honed_…`, from `honed token create`. Feedback is recorded as from that token's name.
+A refusal comes back as the tool's error, in the server's words.
+
+Claude Code connects with the honed plugin (`claude plugin install honed@honed`), which also asks each session for
+feedback. Any other client takes it in its MCP config, as `.mcp.json` does; leave out `headers` on a honed with no tokens:
+
+```json
+{
+  "mcpServers": {
+    "honed": {
+      "type": "http",
+      "url": "http://127.0.0.1:4321/mcp",
+      "headers": {
+        "Authorization": "Bearer honed_…"
+      }
+    }
+  }
+}
+```
+
+The contract is [`mcp.json`](../mcp.json); a running honed serves it at `/mcp.json` and this page at `/docs/mcp`.
+Its JSON API is described in [`API.md`](./API.md).
+
+## Instructions
+
+What the server tells an agent when it connects:
+
+> honed is your organization's shared skills library, and it improves from your feedback.
+>
+> - Before a task, search_skills for what it is about (or list_skills), and get_skill any whose description fits. Follow what you read.
+> - After using a skill, submit_feedback only when it fell short: it was wrong, it left out something you had to find out, or a person or a check corrected you on what it covers. Quote the skill's text it is about exactly, show the evidence (a file as it is now, or a command and what it printed), and say what you did instead. If it simply worked, or your advice is something any capable agent does anyway, send nothing. Include files when you know the exact fix. Never include secrets or personal details.
+> - To add a skill, read honed/skill-writing first, then submit_feedback under the new name with a draft of its SKILL.md.
+
+## Tools
+
+| Tool | Does | Reads only |
+| --- | --- | --- |
+| [`list_skills`](#list_skills) | List skills | yes |
+| [`search_skills`](#search_skills) | Search skills | yes |
+| [`get_skill`](#get_skill) | Get a skill | yes |
+| [`submit_feedback`](#submit_feedback) | Submit feedback on a skill |  |
+
+### list_skills
+
+Every skill in the library, with its description.
+
+No input.
+
+### search_skills
+
+Skills whose name, description or text match any word of query, best first, with where each matched.
+
+| Input | Type | Required | |
+| --- | --- | --- | --- |
+| `query` | string | yes |  |
+| `limit` | integer, at most 50 |  |  |
+
+### get_skill
+
+A skill's SKILL.md and the paths of its other files; with path, that one file instead. To run a script, get it and run your copy.
+
+| Input | Type | Required | |
+| --- | --- | --- | --- |
+| `name` | string | yes |  |
+| `path` | string |  | One file of the skill, e.g. scripts/check.sh. Omit for SKILL.md and the file list. |
+| `version` | integer |  | An earlier version; omit for the latest. |
+
+### submit_feedback
+
+Report where a skill's text is wrong or falls short: quote that text exactly, show the evidence, and say what you did instead. A report missing any of these, or quoting text the skill does not have, is refused with how to fix it; resubmit it fixed. Not for a skill that simply worked. Include files to suggest exact text. Under a name no skill has yet, it asks for that skill: say what it is for in feedback, follow honed/skill-writing and draft its SKILL.md; no quote is needed. Skills are revised from these reports.
+
+| Input | Type | Required | |
+| --- | --- | --- | --- |
+| `name` | string | yes | The skill, e.g. team/code-review: an optional prefix for its group, then lowercase letters, digits and hyphens. |
+| `quote` | string |  | The exact text in the skill that is wrong or falls short, copied from get_skill: a whole sentence or line. Not needed for a new skill. |
+| `evidence` | object[] |  | What shows the quote is wrong: each a file with its current contents, or a command with what it printed. Not needed for a new skill. |
+| `evidence[].path` | string |  | A file that shows the quote is wrong, e.g. src/api.ts. |
+| `evidence[].content` | string |  | That file's current contents, or the part that shows it. |
+| `evidence[].command` | string |  | A command you ran, e.g. npm run lint. |
+| `evidence[].output` | string |  | What the command actually printed. |
+| `what_changed` | string |  | What you did instead of what the quote says, or what you changed that it describes. Not needed for a new skill. |
+| `feedback` | string |  | Anything else worth knowing. For a new skill: what it is for. |
+| `files` | object[] |  | Optional: files you suggest, each with its whole content. |
+| `files[].path` | string | yes |  |
+| `files[].content` | string | yes |  |
+| `files[].executable` | boolean |  |  |
+| `author` | string |  | Your role or task, e.g. reviewer on PR 12. |

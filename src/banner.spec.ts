@@ -14,8 +14,9 @@ test("says what honed is, where it is, and the one command to connect", () => {
   assert.match(text, /Local only/);
 });
 
-test("points at the API's docs", () => {
+test("points at the API's and the MCP server's docs", () => {
   assert.match(banner(info), /API +http:\/\/127\.0\.0\.1:4321\/api\/skills +docs http:\/\/127\.0\.0\.1:4321\/docs\/api\n/);
+  assert.match(banner(info), /MCP +http:\/\/127\.0\.0\.1:4321\/mcp +docs http:\/\/127\.0\.0\.1:4321\/docs\/mcp\n/);
 });
 
 test("names the token header once tokens exist, and has no color codes unless asked", () => {

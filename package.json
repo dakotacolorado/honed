@@ -28,7 +28,8 @@
   "files": [
     "dist",
     "docs",
-    "openapi.json"
+    "openapi.json",
+    "mcp.json"
   ],
   "engines": {
     "node": ">=24"
