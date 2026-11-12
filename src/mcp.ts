@@ -4,10 +4,13 @@ import { authorOf } from "./auth.ts";
 import { checkName, NAMESPACES_HEADER, OWN_NAMESPACE, Refusal, Scope, SKILL_FILE, type Caller } from "./domain.ts";
 import type { Hub } from "./hub.ts";
 
-export const INSTRUCTIONS = `honed is your organization's shared skills library, and it improves from your feedback.
+/** When an agent reports on a skill: two things it can tell happened, not a judgment of how the skill did. */
+export const TRIGGER = "If you edited something a skill mentions, or a skill gave you wrong information, report it before you finish, quoting the skill's text and showing the evidence.";
+
+export const INSTRUCTIONS = `honed is your organization's shared skills library, and it improves from your reports.
 
 - Before a task, search_skills for what it is about (or list_skills), and get_skill any whose description fits. Follow what you read.
-- After using a skill, submit_feedback only when it fell short: it was wrong, it left out something you had to find out, or a person or a check corrected you on what it covers. Quote the skill's text it is about exactly, show the evidence (a file as it is now, or a command and what it printed), and say what you did instead. If it simply worked, or your advice is something any capable agent does anyway, send nothing. Include files when you know the exact fix. Never include secrets or personal details.
+- ${TRIGGER} Use submit_feedback: quote is the skill's exact text, evidence the file as it is now or the command and what it printed, what_changed what you did or changed. Otherwise send nothing. Include files when you know the exact fix. Never include secrets or personal details.
 - To add a skill, read honed/skill-writing first, then submit_feedback under the new name with a draft of its ${SKILL_FILE}.`;
 
 /** The most skills the instructions name; the rest are a list_skills away. */
@@ -113,10 +116,10 @@ export function mcpServer(hub: Hub, version: string, caller: Caller, local: bool
     "submit_feedback",
     {
       title: "Submit feedback on a skill",
-      description: `Report where a skill's text is wrong or falls short: quote that text exactly, show the evidence, and say what you did instead. A report missing any of these, or quoting text the skill does not have, is refused with how to fix it; resubmit it fixed. Not for a skill that simply worked. Include files to suggest exact text. Under a name no skill has yet, it asks for that skill: say what it is for in feedback, follow honed/skill-writing and draft its ${SKILL_FILE}; no quote is needed. Skills are revised from these reports.`,
+      description: `${TRIGGER} quote is that text exactly, evidence what shows it is wrong, and what_changed what you did instead or changed. A report missing any of these, or quoting text the skill does not have, is refused with how to fix it; resubmit it fixed. Include files to suggest exact text. Under a name no skill has yet, it asks for that skill: say what it is for in feedback, follow honed/skill-writing and draft its ${SKILL_FILE}; no quote is needed. Skills are revised from these reports.`,
       inputSchema: {
         name: z.string().describe("The skill, e.g. team/code-review: an optional prefix for its group, then lowercase letters, digits and hyphens."),
-        quote: z.string().optional().describe("The exact text in the skill that is wrong or falls short, copied from get_skill: a whole sentence or line. Not needed for a new skill."),
+        quote: z.string().optional().describe("The exact text in the skill that is wrong or that your edit made out of date, copied from get_skill: a whole sentence or line. Not needed for a new skill."),
         evidence: z
           .array(
             z.object({

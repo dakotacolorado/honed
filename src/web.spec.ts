@@ -2,6 +2,7 @@ import { serve, type ServerType } from "@hono/node-server";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import assert from "node:assert/strict";
+import { existsSync, readFileSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
 import { request } from "node:http";
 import type { AddressInfo } from "node:net";
@@ -11,6 +12,7 @@ import { after, before, describe, test } from "node:test";
 import { createToken } from "./auth.ts";
 import type { Decision, Judge } from "./judge.ts";
 import { Hub } from "./hub.ts";
+import { mcpJson } from "./mcp.ts";
 import { app, WRITE_HEADER } from "./web.ts";
 
 const skillMd = `---\nname: release-notes\ndescription: Writing release notes from merged PRs.\n---\n\nGroup by user-facing change.\n`;
@@ -91,6 +93,11 @@ describe("a local server, with no tokens", () => {
 
   test("says how to use it, and offers four tools", async () => {
     assert.match(client.getInstructions() ?? "", /submit_feedback/);
+    const feedbackTool = (await client.listTools()).tools.find((t) => t.name === "submit_feedback")!;
+    for (const text of [client.getInstructions() ?? "", feedbackTool.description ?? "", JSON.stringify(feedbackTool.inputSchema)]) {
+      assert.ok(text.includes("If you edited something a skill mentions, or a skill gave you wrong information, report it before you finish, quoting the skill's text and showing the evidence.") || text.startsWith("{"), text);
+      assert.doesNotMatch(text, /fell short|falls? short|report any issues|any issues/i);
+    }
     const tools = (await client.listTools()).tools.map((t) => t.name).sort();
     assert.deepEqual(tools, ["get_skill", "list_skills", "search_skills", "submit_feedback"]);
   });
@@ -139,7 +146,10 @@ describe("a local server, with no tokens", () => {
     assert.doesNotMatch(home, /header class="top"/);
     assert.match(home, /release-notes/);
     assert.match(home, /connect Claude Code/);
-    assert.match(home, /claude plugin install honed@honed --config url=http:\/\/127\.0\.0\.1:\d+</);
+    assert.match(home, /Commit this <code>\.mcp\.json<\/code> at a repo's root/);
+    assert.match(home, /&quot;url&quot;: &quot;http:\/\/127\.0\.0\.1:\d+\/mcp&quot;/);
+    assert.match(home, /&quot;X-Honed-Namespaces&quot;: &quot;your-project, shared&quot;/);
+    assert.doesNotMatch(home, /plugin/);
     assert.doesNotMatch(home, /claude mcp add/);
     assert.doesNotMatch(home, /class="bar"/, "no size bar");
     assert.match(await (await fetch(`${s.base}/?q=grouping`)).text(), /release-notes/);
@@ -285,6 +295,17 @@ describe("a server with tokens", () => {
     assert.equal(await statusWithHost(s.base, "honed.example.com"), 401);
   });
 
+  test("connects with the .mcp.json honed gives, HONED_TOKEN filled from the environment, and nothing else", async () => {
+    const { url, headers } = (JSON.parse(mcpJson(s.base, ["team"])) as { mcpServers: { honed: { url: string; headers: Record<string, string> } } }).mcpServers.honed;
+    const env = { HONED_TOKEN: agent };
+    const expanded = Object.fromEntries(Object.entries(headers).map(([k, v]) => [k, v.replace(/\$\{(\w+)\}/g, (_, name: keyof typeof env) => env[name])]));
+    const client = new Client({ name: "fresh-repo", version: "0" });
+    await client.connect(new StreamableHTTPClientTransport(new URL(url), { requestInit: { headers: expanded } }));
+    assert.match(client.getInstructions() ?? "", /bound to team\//);
+    assert.equal((await call(client, "list_skills")).isError, false);
+    await client.close();
+  });
+
   test("attributes feedback to its token, with the role the agent gave", async () => {
     const client = await connect(s.base, agent);
     await call(client, "submit_feedback", { name: "docs/x", feedback: "make it", files: [{ path: "SKILL.md", content: "---\nname: x\ndescription: d\n---\n" }], author: "reviewer on PR 3" });
@@ -379,8 +400,16 @@ describe("a server with tokens", () => {
     assert.match(cookie, /SameSite=Strict/);
     const home = await (await fetch(s.base, { headers: { cookie: cookie.split(";")[0]! } })).text();
     assert.match(home, /dakota \(admin\)/);
-    assert.match(home, /\/plugin configure honed@honed/);
+    assert.match(home, /Then set <code>HONED_TOKEN<\/code> in your environment to your token/);
   });
+});
+
+test("no plugin or hooks ship in the repo or the package: a repo connects with .mcp.json alone", async () => {
+  const root = new URL("../", import.meta.url);
+  for (const gone of ["plugin", ".claude-plugin", "src/plugin.spec.ts"]) assert.equal(existsSync(new URL(gone, root)), false, gone);
+  const pkg = JSON.parse(readFileSync(new URL("package.json", root), "utf8")) as { files: string[] };
+  for (const shipped of pkg.files) assert.doesNotMatch(shipped, /plugin|hooks/, shipped);
+  assert.doesNotMatch(readFileSync(new URL("README.md", root), "utf8"), /claude plugin|\/plugin configure/);
 });
 
 test("a shared server refuses everyone until it has a token", async () => {

@@ -292,7 +292,7 @@ export class Hub {
     let whatChanged: string | null = null;
     if (exists) {
       quote = (input.quote ?? "").trim();
-      if (!quote) throw new Refusal(`a report on ${name} needs quote: the exact text in the skill that is wrong or falls short, copied from get_skill`);
+      if (!quote) throw new Refusal(`a report on ${name} needs quote: the exact text in the skill that is wrong or out of date, copied from get_skill`);
       if (quote.length < MIN_QUOTE) throw new Refusal(`"${quote}" is too short to say which text is wrong: quote the whole sentence or line from ${name}`);
       if (!quoted(quote, current)) throw new Refusal(`this text is not in ${name} as it is now (v${this.store.skill(name)!.version}); get_skill it again and quote it exactly: "${quote.slice(0, 200)}"`);
       evidence = checkEvidence(input.evidence ?? []);

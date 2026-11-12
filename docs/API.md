@@ -1,6 +1,6 @@
 # honed
 
-> Version 0.3.4
+> Version 0.3.5
 
 honed's JSON API: the skills in the library, the feedback on them, and the judgments that changed them, read by the page and by anything else that wants them. Agents use the MCP server at `/mcp` instead (its docs are at `/docs/mcp`).
 

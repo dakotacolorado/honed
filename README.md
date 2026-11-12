@@ -19,15 +19,25 @@ Share and hone skills across your organization: agents use a skill, say how it w
 npx @dakotajp/honed
 ```
 
-That starts the server and its page at <http://127.0.0.1:4321>. Then connect Claude Code with the honed plugin, once:
+That starts the server and its page at <http://127.0.0.1:4321>. Then connect a repo by committing a `.mcp.json` at its
+root, naming the namespaces it uses (see [namespaces](#the-model)):
 
-```sh
-claude plugin marketplace add dakotacolorado/honed
-claude plugin install honed@honed
+```json
+{
+  "mcpServers": {
+    "honed": {
+      "type": "http",
+      "url": "http://127.0.0.1:4321/mcp",
+      "headers": { "Authorization": "Bearer ${HONED_TOKEN}", "X-Honed-Namespaces": "your-project, team" }
+    }
+  }
+}
 ```
 
-Every Claude Code session now searches the library before a task and is asked for feedback on any skill it used that fell short.
-That is all the setup. Needs Node 24+, git, and [Claude Code](https://claude.com/claude-code) signed in: skills are revised
+and set `HONED_TOKEN` in your environment (any value on a local honed with no tokens). Nothing else is installed: no
+plugin and no hooks. Each Claude Code session in the repo is told its skills when it starts, searches them before a
+task, and reports on one when it edited something the skill mentions or the skill gave it wrong information, quoting
+the skill's text and showing the evidence. That is all the setup. Needs Node 24+, git, and [Claude Code](https://claude.com/claude-code) signed in: skills are revised
 by Claude Code on your machine, with your login (`claude -p`, with no tools), so there is no API key to set.
 
 ## The model
@@ -98,13 +108,8 @@ honed token create dakota --admin --dir /srv/honed
 honed --host 0.0.0.0 --judge api --dir /srv/honed
 ```
 
-Put it behind HTTPS (any reverse proxy). Each person installs the plugin pointed at it, then gives it their token
-with `/plugin configure honed@honed` in a session; Claude Code keeps it in the system's secure store:
-
-```sh
-claude plugin marketplace add dakotacolorado/honed
-claude plugin install honed@honed --config url=https://honed.example.com
-```
+Put it behind HTTPS (any reverse proxy). Each repo's `.mcp.json` names it (`"url": "https://honed.example.com/mcp"`),
+and each person sets `HONED_TOKEN` to their own token in their environment, so no token is committed.
 
 `--judge` picks who revises: `claude-code` (a Claude Code login on this machine), `api` (the Claude API, with
 `ANTHROPIC_API_KEY`; `claude-opus-5-5` unless `--judge-model` names another), `off`, or `auto`, the default, which
