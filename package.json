@@ -1,6 +1,6 @@
 {
   "name": "@dakotajp/honed",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "description": "Share and hone skills across your organization: an MCP server where agents get skills and submit feedback, and each skill is revised from it.",
   "keywords": [
     "mcp",

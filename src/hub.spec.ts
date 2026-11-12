@@ -166,16 +166,24 @@ describe("a report", () => {
     assert.equal(hub.skill("new-one").version, 1);
   });
 
-  test("a library made before reports had these fields opens, its old feedback read without them", async () => {
+  test("a library made before reports and per-skill limits opens, its old feedback and skills read without them", async () => {
     hub.close();
     const old = await mkdtemp(join(tmpdir(), "honed-old-"));
     try {
       const db = new DatabaseSync(join(old, "honed.db"));
       db.exec("CREATE TABLE feedback (id TEXT PRIMARY KEY, skill TEXT NOT NULL, version INTEGER NOT NULL, text TEXT NOT NULL, draft TEXT NOT NULL, author TEXT NOT NULL, at TEXT NOT NULL, judgment TEXT)");
       db.exec("INSERT INTO feedback VALUES ('f1', 'x', 1, 'old words', '[]', 'someone', '2026-01-01T00:00:00.000Z', 'j1')");
+      // A skills table from before each skill had its own limit; version 0 so it needs no files in git.
+      db.exec("CREATE TABLE skills (name TEXT PRIMARY KEY, version INTEGER NOT NULL, created_at TEXT NOT NULL)");
+      db.exec("INSERT INTO skills VALUES ('x', 0, '2026-01-01T00:00:00.000Z')");
       db.close();
-      hub = await Hub.open(old, null, { starters: false });
+      hub = await Hub.open(old, null, { starters: false, maxChars: 5000 });
       assert.deepEqual(hub.store.feedback("x").map((f) => [f.text, f.quote, f.evidence, f.whatChanged]), [["old words", null, [], null]]);
+      assert.equal(hub.store.skill("x")?.maxChars, null);
+      assert.equal(hub.limit("x"), 5000, "the library's default");
+      hub.setLimit("x", 1234);
+      hub.store.putSkill({ name: "x", version: 0, createdAt: "2026-01-01T00:00:00.000Z" });
+      assert.equal(hub.limit("x"), 1234, "a new version keeps the limit an admin set");
     } finally {
       hub.close();
       await rm(old, { recursive: true, force: true });
