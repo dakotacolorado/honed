@@ -101,6 +101,9 @@ export interface Judgment {
   version: number | null;
 }
 
+/** How a report is named in reasoning and history: its short id and who sent it. */
+export const reportName = (f: Pick<Feedback, "id" | "author">) => `report ${f.id.slice(0, 8)} by ${f.author}`;
+
 /** Who is calling: a named token, or whoever is at this machine on a server with no tokens. */
 export interface Caller {
   name: string;

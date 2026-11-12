@@ -3,7 +3,10 @@ import { spawn } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { z } from "zod";
-import { textSize, type Feedback, type Judgment, type SkillFile } from "./domain.ts";
+import { reportName, textSize, type Feedback, type Judgment, type SkillFile } from "./domain.ts";
+
+/** A past judgment, with the reports it decided on. */
+export type Precedent = Judgment & { feedback: Feedback[] };
 
 /** A decision as the judge writes it: every field present, empty where unused, so one schema serves every case. */
 export const DecisionSchema = z.object({
@@ -17,6 +20,10 @@ export const DecisionSchema = z.object({
     .array(z.object({ path: z.string(), content: z.string(), executable: z.boolean() }))
     .describe("For a new skill, a new file, or a rewrite your reasoning justifies: each file to write, with its whole content. Empty otherwise."),
   remove: z.array(z.string()).describe("For a new version: each file to delete. Empty otherwise."),
+  revert_to: z
+    .number()
+    .int()
+    .describe("To undo instead of edit: the earlier version to restore whole, when new feedback with evidence contradicts what later versions changed. edits, write and remove then stay empty. 0 otherwise."),
   honer_feedback: z
     .string()
     .describe("Feedback on your own guidance (the honed/honer skill): what deciding this showed it gets wrong or leaves out. Empty when nothing, and always empty when the skill is honed/honer."),
@@ -38,7 +45,7 @@ export interface Case {
   files: SkillFile[];
   others: { name: string; description: string }[];
   feedback: Feedback[];
-  precedent: Judgment[];
+  precedent: Precedent[];
   /** Why the judge's last attempt at this same case was refused, for it to correct. */
   failure: string | null;
   /** How to judge: the body of the honed/honer skill's current version. */
@@ -63,7 +70,7 @@ export function render(c: Case): string {
   const feedback = c.feedback
     .map((f) =>
       [
-        `<feedback by="${attr(f.author)}" on_version="${f.version}" at="${f.at}">`,
+        `<feedback id="${f.id.slice(0, 8)}" by="${attr(f.author)}" on_version="${f.version}" at="${f.at}">`,
         ...(f.quote !== null ? [`<quote>\n${f.quote}\n</quote>`] : []),
         ...f.evidence.map((e) =>
           "path" in e ? `<evidence file="${attr(e.path)}">\n${e.content}\n</evidence>` : `<evidence command="${attr(e.command)}">\n${e.output}\n</evidence>`,
@@ -76,7 +83,10 @@ export function render(c: Case): string {
     )
     .join("\n\n");
   const precedent = c.precedent
-    .map((j) => `<judgment at="${j.startedAt}" changed="${j.changed}"${j.version ? ` made_version="${j.version}"` : ""}>${j.reasoning}</judgment>`)
+    .map((j) => {
+      const reports = j.feedback.map((f) => `<from report="${f.id.slice(0, 8)}" by="${attr(f.author)}">${f.quote !== null ? `quoting: ${f.quote}` : f.text.slice(0, 300)}</from>`);
+      return `<judgment at="${j.startedAt}" changed="${j.changed}"${j.version ? ` made_version="${j.version}"` : ""} reports="${j.feedback.length}">\n${[...reports, j.reasoning].join("\n")}\n</judgment>`;
+    })
     .join("\n");
   return [
     `<skill name="${c.skill}" version="${c.version}" characters="${textSize(c.files)}" cap="${c.maxChars}">\n${current}\n</skill>`,

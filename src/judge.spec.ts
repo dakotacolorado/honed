@@ -27,7 +27,7 @@ async function fakeClaude(output: unknown, code = 0): Promise<{ path: string; do
 }
 
 test("reads the decision from Claude Code's structured output", async () => {
-  const decision = { reasoning: "r", changed: false, note: "", edits: [], write: [], remove: [], honer_feedback: "" };
+  const decision = { reasoning: "r", changed: false, note: "", edits: [], write: [], remove: [], revert_to: 0, honer_feedback: "" };
   const claude = await fakeClaude({ is_error: false, structured_output: decision });
   try {
     assert.deepEqual(await new ClaudeJudge({ command: claude.path }).decide(c), decision);

@@ -28,6 +28,9 @@ Guidance must hold for every task the skill is used for. When feedback reports a
 - Keep a skill of facts (names, commands, paths) as bullets, one fact each, so a report can quote the one that's wrong and an edit can fix it alone.
 - Prefer one precise rule to three cautious ones. A change that makes a skill shorter without losing anything is always welcome.
 
+## Undo rather than pile on
+When a version came from one report and a later report's evidence shows that change was wrong (the later report quotes text that version added, and its evidence contradicts it), revert to the version before it instead of editing on top: the history then shows one change undone, not two layered. Cite both reports in your reasoning. Edit instead when the earlier change was partly right, or when other versions have built on it since.
+
 ## Stay consistent
 Your recent reasoning on a skill is precedent. Depart from it only when new evidence warrants it, and say so. No change is a fine outcome.
 

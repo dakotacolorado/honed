@@ -22,6 +22,7 @@ import {
   now,
   PRECEDENT,
   quoted,
+  reportName,
   Refusal,
   SKILL_FILE,
   textSize,
@@ -483,7 +484,11 @@ export class Hub {
       files: await this.files(name, version),
       others: this.neighbours(name),
       feedback: this.store.waiting(name),
-      precedent: this.store.judgments(name, PRECEDENT * 2).filter((j) => j.state === "done" && j.by === "judge").slice(0, PRECEDENT),
+      precedent: this.store
+        .judgments(name, PRECEDENT * 2)
+        .filter((j) => j.state === "done" && j.by === "judge")
+        .slice(0, PRECEDENT)
+        .map((j) => ({ ...j, feedback: this.store.feedbackOf(j.id) })),
       failure,
       guidance: await this.guidance(),
       writingGuide: version === 0 ? await this.bodyOf(WRITING_SKILL) || null : null,
@@ -515,11 +520,33 @@ export class Hub {
     }
   }
 
+  /**
+   * The judge's revert: the skill's files at `revert_to`, as a new version. Its reasoning names the reports behind each
+   * version it undoes and the reports that contradicted them, so the history says which report undid which.
+   */
+  private async revertFor(c: Case, j: Judgment, d: Decision): Promise<number> {
+    const to = d.revert_to;
+    if (!d.changed) throw new Refusal("revert_to restores an earlier version, a change: set changed true, or revert_to 0");
+    if (d.edits.length || d.write.length || d.remove.length) throw new Refusal("revert_to restores an earlier version whole: leave edits, write and remove empty, or revert_to 0 and edit");
+    if (!Number.isInteger(to) || to < 1 || to >= c.version) throw new Refusal(`revert_to must be a version from 1 to ${c.version - 1}, or 0`);
+    const files = await this.files(c.skill, to);
+    checkSkill(c.skill, files, c.maxChars, textSize(c.files));
+    const undone = this.store
+      .versions(c.skill)
+      .filter((v) => v.version > to)
+      .flatMap((v) => this.store.feedbackOf(v.judgment).map((f) => `${reportName(f)} (v${v.version})`));
+    const by = c.feedback.map(reportName);
+    j.reasoning = [d.reasoning.trim(), `Reverts to v${to}, undoing ${undone.join(", ") || "changes made without a report"}; contradicted by ${by.join(", ") || "no new report"}.`].filter(Boolean).join("\n\n");
+    return this.commit(c.skill, files, d.note.trim() || `Revert to version ${to}`, j);
+  }
+
   /** Makes a decision so, if the skill is still the version it was made on and the result is a skill honed can keep. */
   private async apply(c: Case, j: Judgment, d: Decision): Promise<void> {
     if ((this.store.skill(c.skill)?.version ?? 0) !== c.version) throw new Outdated(`${c.skill} changed while the judge was deciding`);
     j.reasoning = d.reasoning;
-    if (d.changed) {
+    if (d.revert_to !== 0) {
+      j.version = await this.revertFor(c, j, d);
+    } else if (d.changed) {
       if (d.edits.length === 0 && d.write.length === 0 && d.remove.length === 0) throw new Error("the judge said it changed the skill but edited, wrote and removed nothing");
       const files = applyFiles(applyEdits(c.files, d.edits), d.write, d.remove);
       checkSkill(c.skill, files, c.maxChars, textSize(c.files));

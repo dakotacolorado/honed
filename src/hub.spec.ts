@@ -10,7 +10,7 @@ import { render, type Case, type Decision, type Judge } from "./judge.ts";
 
 const skillMd = (name: string, body = "Do the thing.") => `---\nname: ${name.split("/").pop()}\ndescription: When to use ${name}.\n---\n\n${body}\n`;
 const draft = (name: string, body?: string): DraftFile[] => [{ path: "SKILL.md", content: skillMd(name, body) }];
-const noChange: Decision = { reasoning: "Not yet.", changed: false, note: "", edits: [], write: [], remove: [], honer_feedback: "" };
+const noChange: Decision = { reasoning: "Not yet.", changed: false, note: "", edits: [], write: [], remove: [], revert_to: 0, honer_feedback: "" };
 
 /** A report's quote, evidence and what changed, as a report on `skill` must carry them; nothing for a skill not made yet. */
 async function on(skill: string): Promise<{ skill: string; quote?: string; evidence?: { command: string; output: string }[]; whatChanged?: string }> {
@@ -37,7 +37,7 @@ class FakeJudge implements Judge {
 const takeDraft = (c: Case): Decision => {
   const d = [...c.feedback].reverse().find((f) => f.draft.length);
   return d
-    ? { reasoning: "Supported.", changed: true, note: d.text, edits: [], write: d.draft.map((f) => ({ ...f, executable: f.executable ?? false })), remove: [], honer_feedback: "" }
+    ? { reasoning: "Supported.", changed: true, note: d.text, edits: [], write: d.draft.map((f) => ({ ...f, executable: f.executable ?? false })), remove: [], revert_to: 0, honer_feedback: "" }
     : noChange;
 };
 
@@ -203,7 +203,7 @@ describe("the judge", () => {
     assert.equal(c.precedent.length, 1);
     const text = render(c);
     assert.match(text, /<skill name="x" version="1" characters="\d+" cap="20000">/);
-    assert.match(text, /<feedback by="writer" on_version="1"/);
+    assert.match(text, /<feedback id="[0-9a-f]{8}" by="writer" on_version="1"/);
     assert.match(text, /<draft>[\s\S]*Example: do it\./);
     assert.equal(hub.skill("x").version, 2);
   });
@@ -213,8 +213,8 @@ describe("the judge", () => {
     hub = await Hub.open(dir, judge, { maxChars: 1000, starters: false });
     judge.decide_ = (c) =>
       c.failure
-        ? { reasoning: "Condensed.", changed: true, note: "small", edits: [], write: draft("x", "short"), remove: [], honer_feedback: "" } as Decision
-        : { reasoning: "All of it.", changed: true, note: "big", edits: [], write: [{ path: "SKILL.md", content: skillMd("x", "y".repeat(1000)), executable: false }], remove: [], honer_feedback: "" };
+        ? { reasoning: "Condensed.", changed: true, note: "small", edits: [], write: draft("x", "short"), remove: [], revert_to: 0, honer_feedback: "" } as Decision
+        : { reasoning: "All of it.", changed: true, note: "big", edits: [], write: [{ path: "SKILL.md", content: skillMd("x", "y".repeat(1000)), executable: false }], remove: [], revert_to: 0, honer_feedback: "" };
     await hub.submitFeedback({ ...(await on("x")), text: "make it", files: draft("x") });
     await hub.idle();
     assert.equal(judge.cases.length, 2);
@@ -223,7 +223,7 @@ describe("the judge", () => {
     assert.equal(hub.store.versions("x")[0]?.note, "small");
 
     judge.cases = [];
-    judge.decide_ = () => ({ reasoning: "r", changed: true, note: "n", edits: [], write: [{ path: "SKILL.md", content: "no frontmatter", executable: false }], remove: [], honer_feedback: "" });
+    judge.decide_ = () => ({ reasoning: "r", changed: true, note: "n", edits: [], write: [{ path: "SKILL.md", content: "no frontmatter", executable: false }], remove: [], revert_to: 0, honer_feedback: "" });
     await hub.submitFeedback({ ...(await on("x")), text: "again", files: draft("x", "z") });
     await hub.idle();
     assert.equal(judge.cases.length, 3);
@@ -298,6 +298,54 @@ describe("edits", () => {
     hub.judgeNow("x");
     await hub.idle();
     assert.match(judge.cases[1]!.failure!, /edit 1 \(on SKILL\.md\): its old text appears more than once/);
+  });
+});
+
+describe("a revert by the judge", () => {
+  /** v1 made, then v2 from one report adding a wrong command; the case for a second report quoting it. */
+  async function contradicted() {
+    await hub.submitFeedback({ skill: "x", text: "make it", files: draft("x", "- Lint with `npm run lint`.") });
+    await hub.idle();
+    judge.decide_ = () => ({ ...noChange, changed: true, note: "Deploy command", edits: [{ path: "SKILL.md", old: "- Lint with `npm run lint`.", new: "- Lint with `npm run lint`.\n- Deploy with `make ship`." }] });
+    const { feedback: first } = await hub.submitFeedback({ ...(await on("x")), evidence: [{ path: "Makefile", content: "ship:\n\t./deploy" }], author: "first agent" });
+    await hub.idle();
+    hub.judgeNow("x");
+    await hub.idle();
+    assert.equal(hub.skill("x").version, 2);
+    return first;
+  }
+
+  test("undoes a version made from one report that a later report's evidence contradicts, as a new commit naming both", async () => {
+    const first = await contradicted();
+    judge.cases = [];
+    judge.decide_ = () => ({ ...noChange, reasoning: "The Makefile has no ship target; v2 was wrong.", changed: true, revert_to: 1 });
+    const { feedback: second } = await hub.submitFeedback({ skill: "x", quote: "- Deploy with `make ship`.", evidence: [{ command: "make ship", output: "make: *** No rule to make target 'ship'." }], whatChanged: "Ran ./deploy.", author: "second agent" });
+    await hub.idle();
+    hub.judgeNow("x");
+    await hub.idle();
+    assert.match(render(judge.cases[0]!), new RegExp(`<from report="${first.id.slice(0, 8)}" by="first agent">quoting: description: When to use x\\.</from>`), "the precedent names the report behind v2");
+    assert.equal(hub.skill("x").version, 3);
+    assert.deepEqual(await hub.files("x", 3), await hub.files("x", 1));
+    const [v3, v2] = hub.store.versions("x");
+    assert.notEqual(v3!.commit, v2!.commit);
+    assert.equal(v3!.note, "Revert to version 1");
+    const j = hub.judgment(v3!.judgment);
+    assert.equal(j.by, "judge");
+    assert.match(j.reasoning, /The Makefile has no ship target/);
+    assert.match(j.reasoning, new RegExp(`Reverts to v1, undoing report ${first.id.slice(0, 8)} by first agent \\(v2\\); contradicted by report ${second.id.slice(0, 8)} by second agent\\.`));
+    assert.deepEqual(hub.store.feedbackOf(v3!.judgment).map((f) => f.id), [second.id]);
+  });
+
+  test("that also edits, or names no earlier version, is refused and retried with the reason", async () => {
+    await contradicted();
+    judge.cases = [];
+    judge.decide_ = (c) =>
+      c.failure?.includes("whole") ? { ...noChange, changed: true, revert_to: 2 } : c.failure ? noChange : { ...noChange, changed: true, revert_to: 1, edits: [{ path: "SKILL.md", old: "a", new: "b" }] };
+    hub.judgeNow("x");
+    await hub.idle();
+    assert.match(judge.cases[1]!.failure!, /restores an earlier version whole: leave edits, write and remove empty/);
+    assert.match(judge.cases[2]!.failure!, /revert_to must be a version from 1 to 1, or 0/);
+    assert.equal(hub.skill("x").version, 2);
   });
 });
 
