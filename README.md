@@ -42,7 +42,9 @@ by Claude Code on your machine, with your login (`claude -p`, with no tools), so
 Skills are folders in Claude Code's format: a `SKILL.md` plus any scripts, references or templates. Each has a
 hard cap on its text (20,000 characters by default, or `--max-chars`; an admin can set each skill's own on its page),
 so a skill can be revised but never bloated. The honer revises an existing skill by editing the text that's there, so
-what no edit names stays word for word.
+what no edit names stays word for word. Every version is a git commit, and a skill's history names the reports behind each one. When
+a later report's evidence contradicts a change made from an earlier one, the honer can revert it instead of editing on
+top: a new commit, its reasoning naming both reports.
 
 Names can have one prefix that groups them: `team/deploys`, `honed/honer`. A skill's `SKILL.md` frontmatter
 names only the part after it, as Claude Code expects.

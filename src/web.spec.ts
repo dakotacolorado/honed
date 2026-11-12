@@ -22,8 +22,8 @@ const takeDraft: Judge = {
   async decide(c) {
     const d = [...c.feedback].reverse().find((f) => f.draft.length);
     return (d
-      ? { reasoning: "Supported by the report.", changed: true, note: d.text, edits: [], write: d.draft.map((f) => ({ ...f, executable: f.executable ?? false })), remove: [], honer_feedback: "" }
-      : { reasoning: "Not yet.", changed: false, note: "", edits: [], write: [], remove: [], honer_feedback: "" }) satisfies Decision;
+      ? { reasoning: "Supported by the report.", changed: true, note: d.text, edits: [], write: d.draft.map((f) => ({ ...f, executable: f.executable ?? false })), remove: [], revert_to: 0, honer_feedback: "" }
+      : { reasoning: "Not yet.", changed: false, note: "", edits: [], write: [], remove: [], revert_to: 0, honer_feedback: "" }) satisfies Decision;
   },
 };
 
@@ -243,6 +243,22 @@ describe("a connection's namespaces", () => {
     assert.equal(res.status, 400);
     assert.match(((await res.json()) as { error: string }).error, /is not a namespace/);
   });
+});
+
+test("a skill's history names the reports behind each version, and both behind a revert", async () => {
+  const s = await start();
+  try {
+    const md = (body: string) => [{ path: "SKILL.md", content: `---\nname: x\ndescription: d\n---\n\n${body}\n` }];
+    await s.hub.submitFeedback({ skill: "docs/x", text: "make it", files: md("Run `make ship`."), author: "maker" });
+    await s.hub.idle();
+    const { feedback: f } = await s.hub.submitFeedback({ skill: "docs/x", quote: "Run `make ship`.", evidence: [{ command: "make ship", output: "No rule" }], whatChanged: "Ran ./deploy.", files: md("Run `./deploy`."), author: "fixer" });
+    await s.hub.idle();
+    const history = await (await fetch(`${s.base}/skills/docs/x?tab=history`)).text();
+    assert.match(history, new RegExp(`from report ${f.id.slice(0, 8)} by fixer on “Run <code>|from report ${f.id.slice(0, 8)} by fixer on “Run \`make ship\`\\.”`));
+    assert.match(history, /from report [0-9a-f]{8} by maker/);
+  } finally {
+    await s.close();
+  }
 });
 
 describe("a server with tokens", () => {

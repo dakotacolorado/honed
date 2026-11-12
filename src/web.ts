@@ -8,7 +8,7 @@ import type { HtmlEscapedString } from "hono/utils/html";
 import { COOKIE, deleteRoute, describeApi, editRoute, getJudgmentRoute, getSkillRoute, honoPath, judgeRoute, limitRoute, listSkillsRoute, previewRoute, revertRoute, WRITE_HEADER } from "./api.ts";
 import { callerOf } from "./auth.ts";
 import { DEFAULT_URL, LETTERS_ONLY, SUMMARY, SWORD_PIXELS, TAGLINE } from "./banner.ts";
-import { baseName, HONER_SKILL, NAMESPACES_HEADER, parseNamespaces, Scope, LOCAL_CALLER, NAME_ROUTE, prefixOf, Refusal, SKILL_FILE, type Caller, type Feedback, type Judgment } from "./domain.ts";
+import { baseName, HONER_SKILL, reportName, NAMESPACES_HEADER, parseNamespaces, Scope, LOCAL_CALLER, NAME_ROUTE, prefixOf, Refusal, SKILL_FILE, type Caller, type Feedback, type Judgment } from "./domain.ts";
 import { parseDiff } from "./diffview.ts";
 import { renderMarkdown, withoutFrontmatter } from "./markdown.ts";
 import type { Hub, SkillSummary } from "./hub.ts";
@@ -277,7 +277,7 @@ function feedLine(j: Judgment): Html {
 }
 
 function feedbackCard(f: Feedback): Html {
-  return html`<div class="card">
+  return html`<div class="card" id="report-${f.id.slice(0, 8)}">
     ${f.quote !== null
       ? html`<div class="small muted">says</div><div class="quote">${f.quote}</div>
           ${f.evidence.map((e) => html`<div class="by">${"path" in e ? e.path : html`$ ${e.command}`}</div><pre>${"path" in e ? e.content : e.output}</pre>`)}
@@ -287,7 +287,7 @@ function feedbackCard(f: Feedback): Html {
     ${f.draft.length
       ? html`<details><summary class="small">with a draft: ${f.draft.map((d) => d.path).join(", ")}</summary>${f.draft.map((d) => html`<div class="by">${d.path}</div><pre>${d.content}</pre>`)}</details>`
       : ""}
-    <div class="by">${f.author} · on ${f.version ? `v${f.version}` : "a new skill"} · ${ago(f.at)} ·
+    <div class="by">${reportName(f)} · on ${f.version ? `v${f.version}` : "a new skill"} · ${ago(f.at)} ·
       ${f.judgment ? html`<a href="/judgments/${f.judgment}">considered</a>` : pill("waiting", "waiting")}</div>
   </div>`;
 }
@@ -438,9 +438,12 @@ async function skillPage(hub: Hub, name: string, viewer: Viewer, version: string
       ${versions.map((v, i) => {
         const j = hub.store.judgment(v.judgment);
         const kind = j?.by === "person" ? "person" : j?.by === "starter" ? "starter" : "";
-        const how = j?.by === "person" ? `${personName(j)} ${v.note.startsWith("Revert") ? "reverted" : "edited"} it` : j?.by === "starter" ? "shipped with honed" : "honed";
+        const reverted = v.note.startsWith("Revert");
+        const how = j?.by === "person" ? `${personName(j)} ${reverted ? "reverted" : "edited"} it` : j?.by === "starter" ? "shipped with honed" : reverted ? "reverted by the honer" : "honed";
+        const reports = hub.store.feedbackOf(v.judgment);
         return html`<div class="event ${kind}">
           <div><b class="mono">v${v.version}</b> ${v.note} <span class="muted small">· ${how} ${ago(v.at)} · <a href="/judgments/${v.judgment}">why</a></span></div>
+          ${reports.length ? html`<div class="by">from ${reports.map((f, k) => html`${k ? ", " : ""}${reportName(f)}${f.quote !== null ? html` on “${f.quote.length > 80 ? `${f.quote.slice(0, 80)}…` : f.quote}”` : ""}`)}</div>` : ""}
           <details><summary class="small muted">what changed</summary>${diffView(diffs[i] ?? "", name)}</details>
           ${admin && v.version < skill.version
             ? html`<details><summary class="small muted">revert to v${v.version}</summary>${action(`/api/skills/${name}/revert`, `Revert to v${v.version}`, { reason: "Why? (kept in the history)", extra: html`<input type="hidden" name="version" value="${v.version}" />` })}</details>`
