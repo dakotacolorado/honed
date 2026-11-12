@@ -2,6 +2,7 @@ import { mkdir, readdir, readFile, stat } from "node:fs/promises";
 import { join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
+  applyEdits,
   applyFiles,
   checkDraft,
   checkName,
@@ -39,6 +40,8 @@ export interface SkillSummary {
   description: string;
   version: number;
   chars: number;
+  /** The most text it may hold: its own limit, or the library's default. */
+  limit: number;
   /** Feedback on the current version. */
   feedback: number;
   /** Feedback no revision has considered yet. */
@@ -215,6 +218,7 @@ export class Hub {
       description: this.descriptions.get(s.name) ?? "",
       version: s.version,
       chars: this.sizes.get(s.name) ?? 0,
+      limit: s.maxChars ?? this.maxChars,
       feedback: this.store.feedbackCount(s.name, s.version),
       waiting: this.store.waiting(s.name).length,
       updatedAt: this.store.version(s.name, s.version)?.at ?? s.createdAt,
@@ -296,7 +300,8 @@ export class Hub {
     }
     if (draft.length) {
       const size = textSize(applyFiles(current, draft));
-      if (size > this.maxChars) throw new Refusal(`with your draft the skill would hold ${size} characters, over the cap of ${this.maxChars}: condense it`);
+      const limit = this.limit(name);
+      if (size > limit) throw new Refusal(`with your draft the skill would hold ${size} characters, over the cap of ${limit}: condense it`);
     }
     const f: Feedback = {
       id: newId(),
@@ -331,7 +336,7 @@ export class Hub {
       const skill = this.skill(name);
       if (!Number.isInteger(to) || to < 1 || to >= skill.version) throw new Refusal(`${name} can be reverted to a version from 1 to ${skill.version - 1}`);
       const files = await this.files(name, to);
-      checkSkill(name, files, this.maxChars);
+      checkSkill(name, files, this.limit(name), textSize(await this.current(name)));
       const j = this.started(name, "person", actor);
       j.reasoning = reason.trim() || `Reverted to version ${to}.`;
       j.version = await this.commit(name, files, `Revert to version ${to}`, j);
@@ -346,7 +351,7 @@ export class Hub {
     const before = await this.current(name);
     const writes = (change.write ?? []).map((w) => ({ ...w, executable: w.executable ?? before.find((f) => f.path === w.path)?.executable ?? false }));
     const after = applyFiles(before, writes, change.remove ?? []);
-    checkSkill(name, after, this.maxChars);
+    checkSkill(name, after, this.limit(name), textSize(before));
     return this.library.compare(before, after);
   }
 
@@ -358,7 +363,7 @@ export class Hub {
       // A file edited in a text box keeps its executable bit unless told otherwise.
       const writes = (change.write ?? []).map((w) => ({ ...w, executable: w.executable ?? before.find((f) => f.path === w.path)?.executable ?? false }));
       const files = applyFiles(before, writes, change.remove ?? []);
-      checkSkill(name, files, this.maxChars);
+      checkSkill(name, files, this.limit(name), textSize(before));
       const j = this.started(name, "person", actor);
       const what = [...(change.write ?? []).map((f) => f.path), ...(change.remove ?? []).map((p) => `${p} removed`)].join(", ");
       j.reasoning = reason.trim() || `Edited ${what}.`;
@@ -385,6 +390,19 @@ export class Hub {
       this.finish(j, true, this.store.waiting(name).map((f) => f.id));
       return j;
     });
+  }
+
+  /** The most text a skill may hold: the limit an admin set on it, or the library's default. */
+  limit(name: string): number {
+    return this.store.skill(name)?.maxChars ?? this.maxChars;
+  }
+
+  /** An admin's limit on one skill's text, or null to use the library's default. It applies to every change from now on; text already over it may only shrink. */
+  setLimit(name: string, maxChars: number | null): Skill {
+    this.skill(name);
+    if (maxChars !== null && (!Number.isInteger(maxChars) || maxChars < 1)) throw new Refusal("a limit is a whole number of characters, at least 1; leave it empty for the library's default");
+    this.store.setMaxChars(name, maxChars);
+    return this.skill(name);
   }
 
   /** Has the judge look at a skill now, whatever feedback is waiting. */
@@ -459,7 +477,7 @@ export class Hub {
     return {
       skill: name,
       version,
-      maxChars: this.maxChars,
+      maxChars: this.limit(name),
       files: await this.files(name, version),
       others: this.neighbours(name),
       feedback: this.store.waiting(name),
@@ -500,9 +518,9 @@ export class Hub {
     if ((this.store.skill(c.skill)?.version ?? 0) !== c.version) throw new Outdated(`${c.skill} changed while the judge was deciding`);
     j.reasoning = d.reasoning;
     if (d.changed) {
-      if (d.write.length === 0 && d.remove.length === 0) throw new Error("the judge said it changed the skill but wrote and removed nothing");
-      const files = applyFiles(c.files, d.write, d.remove);
-      checkSkill(c.skill, files, this.maxChars);
+      if (d.edits.length === 0 && d.write.length === 0 && d.remove.length === 0) throw new Error("the judge said it changed the skill but edited, wrote and removed nothing");
+      const files = applyFiles(applyEdits(c.files, d.edits), d.write, d.remove);
+      checkSkill(c.skill, files, c.maxChars, textSize(c.files));
       j.version = await this.commit(c.skill, files, d.note.trim() || "Changed from feedback", j);
     }
     this.finish(j, d.changed, c.feedback.map((f) => f.id));

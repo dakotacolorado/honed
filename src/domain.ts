@@ -40,6 +40,15 @@ export interface Skill {
   name: string;
   version: number;
   createdAt: string;
+  /** The most text it may hold, set by an admin; null for the library's default. */
+  maxChars: number | null;
+}
+
+/** One change to a file's text: `old`, found once in the file, becomes `new`. */
+export interface TextEdit {
+  path: string;
+  old: string;
+  new: string;
 }
 
 export interface Version {
@@ -162,6 +171,22 @@ export function applyFiles(before: SkillFile[], writes: DraftFile[], remove: str
 
 export const textSize = (files: { content: string }[]) => files.reduce((n, f) => n + f.content.length, 0);
 
+/** The files after each edit in turn, refusing one whose old text is not in its file exactly once, numbered so it can be corrected. */
+export function applyEdits(before: SkillFile[], edits: TextEdit[]): SkillFile[] {
+  const files = new Map(before.map((f) => [f.path, { ...f }]));
+  edits.forEach((e, i) => {
+    const which = `edit ${i + 1} (on ${e.path})`;
+    const file = files.get(checkPath(e.path));
+    if (!file) throw new Refusal(`${which}: the skill has no such file; to make a file, write it whole`);
+    if (!e.old) throw new Refusal(`${which}: its old text is empty; name the text it replaces`);
+    const at = file.content.indexOf(e.old);
+    if (at < 0) throw new Refusal(`${which}: its old text is not in the file; copy it exactly from the current file: "${e.old.slice(0, 200)}"`);
+    if (file.content.indexOf(e.old, at + 1) >= 0) throw new Refusal(`${which}: its old text appears more than once in the file; include more of the text around it so it names one place: "${e.old.slice(0, 200)}"`);
+    file.content = file.content.slice(0, at) + e.new + file.content.slice(at + e.old.length);
+  });
+  return [...files.values()].sort((a, b) => a.path.localeCompare(b.path));
+}
+
 export interface Frontmatter {
   name?: string;
   description?: string;
@@ -179,8 +204,11 @@ export function frontmatter(skillMd: string): Frontmatter {
   return out;
 }
 
-/** Refuses files a skill cannot be: no SKILL.md naming it and saying what it is for, too many files, or over the cap. */
-export function checkSkill(name: string, files: SkillFile[], maxChars: number): void {
+/**
+ * Refuses files a skill cannot be: no SKILL.md naming it and saying what it is for, too many files, or over its limit.
+ * A skill already over its limit (an admin lowered it) may still change if the change makes it smaller: `before` is its size now.
+ */
+export function checkSkill(name: string, files: SkillFile[], maxChars: number, before?: number): void {
   const skillMd = files.find((f) => f.path === SKILL_FILE);
   if (!skillMd) throw new Refusal(`a skill must have a ${SKILL_FILE}`);
   const fm = frontmatter(skillMd.content);
@@ -190,7 +218,9 @@ export function checkSkill(name: string, files: SkillFile[], maxChars: number): 
   if (!fm.description) throw new Refusal(`${SKILL_FILE}'s frontmatter must have a description`);
   if (files.length > MAX_FILES) throw new Refusal(`a skill holds at most ${MAX_FILES} files`);
   const size = textSize(files);
-  if (size > maxChars) throw new Refusal(`the skill would hold ${size} characters, over the cap of ${maxChars}: condense it to make room`);
+  if (size > maxChars && !(before !== undefined && size < before)) {
+    throw new Refusal(`the skill would hold ${size} characters, over the cap of ${maxChars}: condense it to make room`);
+  }
 }
 
 /** Text with every run of whitespace made one space, so a quote matches across line breaks and indentation. */

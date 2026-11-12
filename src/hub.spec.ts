@@ -10,7 +10,7 @@ import { render, type Case, type Decision, type Judge } from "./judge.ts";
 
 const skillMd = (name: string, body = "Do the thing.") => `---\nname: ${name.split("/").pop()}\ndescription: When to use ${name}.\n---\n\n${body}\n`;
 const draft = (name: string, body?: string): DraftFile[] => [{ path: "SKILL.md", content: skillMd(name, body) }];
-const noChange: Decision = { reasoning: "Not yet.", changed: false, note: "", write: [], remove: [], honer_feedback: "" };
+const noChange: Decision = { reasoning: "Not yet.", changed: false, note: "", edits: [], write: [], remove: [], honer_feedback: "" };
 
 /** A report's quote, evidence and what changed, as a report on `skill` must carry them; nothing for a skill not made yet. */
 async function on(skill: string): Promise<{ skill: string; quote?: string; evidence?: { command: string; output: string }[]; whatChanged?: string }> {
@@ -37,7 +37,7 @@ class FakeJudge implements Judge {
 const takeDraft = (c: Case): Decision => {
   const d = [...c.feedback].reverse().find((f) => f.draft.length);
   return d
-    ? { reasoning: "Supported.", changed: true, note: d.text, write: d.draft.map((f) => ({ ...f, executable: f.executable ?? false })), remove: [], honer_feedback: "" }
+    ? { reasoning: "Supported.", changed: true, note: d.text, edits: [], write: d.draft.map((f) => ({ ...f, executable: f.executable ?? false })), remove: [], honer_feedback: "" }
     : noChange;
 };
 
@@ -166,16 +166,24 @@ describe("a report", () => {
     assert.equal(hub.skill("new-one").version, 1);
   });
 
-  test("a library made before reports had these fields opens, its old feedback read without them", async () => {
+  test("a library made before reports and per-skill limits opens, its old feedback and skills read without them", async () => {
     hub.close();
     const old = await mkdtemp(join(tmpdir(), "honed-old-"));
     try {
       const db = new DatabaseSync(join(old, "honed.db"));
       db.exec("CREATE TABLE feedback (id TEXT PRIMARY KEY, skill TEXT NOT NULL, version INTEGER NOT NULL, text TEXT NOT NULL, draft TEXT NOT NULL, author TEXT NOT NULL, at TEXT NOT NULL, judgment TEXT)");
       db.exec("INSERT INTO feedback VALUES ('f1', 'x', 1, 'old words', '[]', 'someone', '2026-01-01T00:00:00.000Z', 'j1')");
+      // A skills table from before each skill had its own limit; version 0 so it needs no files in git.
+      db.exec("CREATE TABLE skills (name TEXT PRIMARY KEY, version INTEGER NOT NULL, created_at TEXT NOT NULL)");
+      db.exec("INSERT INTO skills VALUES ('x', 0, '2026-01-01T00:00:00.000Z')");
       db.close();
-      hub = await Hub.open(old, null, { starters: false });
+      hub = await Hub.open(old, null, { starters: false, maxChars: 5000 });
       assert.deepEqual(hub.store.feedback("x").map((f) => [f.text, f.quote, f.evidence, f.whatChanged]), [["old words", null, [], null]]);
+      assert.equal(hub.store.skill("x")?.maxChars, null);
+      assert.equal(hub.limit("x"), 5000, "the library's default");
+      hub.setLimit("x", 1234);
+      hub.store.putSkill({ name: "x", version: 0, createdAt: "2026-01-01T00:00:00.000Z" });
+      assert.equal(hub.limit("x"), 1234, "a new version keeps the limit an admin set");
     } finally {
       hub.close();
       await rm(old, { recursive: true, force: true });
@@ -205,8 +213,8 @@ describe("the judge", () => {
     hub = await Hub.open(dir, judge, { maxChars: 1000, starters: false });
     judge.decide_ = (c) =>
       c.failure
-        ? { reasoning: "Condensed.", changed: true, note: "small", write: draft("x", "short"), remove: [], honer_feedback: "" } as Decision
-        : { reasoning: "All of it.", changed: true, note: "big", write: [{ path: "SKILL.md", content: skillMd("x", "y".repeat(1000)), executable: false }], remove: [], honer_feedback: "" };
+        ? { reasoning: "Condensed.", changed: true, note: "small", edits: [], write: draft("x", "short"), remove: [], honer_feedback: "" } as Decision
+        : { reasoning: "All of it.", changed: true, note: "big", edits: [], write: [{ path: "SKILL.md", content: skillMd("x", "y".repeat(1000)), executable: false }], remove: [], honer_feedback: "" };
     await hub.submitFeedback({ ...(await on("x")), text: "make it", files: draft("x") });
     await hub.idle();
     assert.equal(judge.cases.length, 2);
@@ -215,7 +223,7 @@ describe("the judge", () => {
     assert.equal(hub.store.versions("x")[0]?.note, "small");
 
     judge.cases = [];
-    judge.decide_ = () => ({ reasoning: "r", changed: true, note: "n", write: [{ path: "SKILL.md", content: "no frontmatter", executable: false }], remove: [], honer_feedback: "" });
+    judge.decide_ = () => ({ reasoning: "r", changed: true, note: "n", edits: [], write: [{ path: "SKILL.md", content: "no frontmatter", executable: false }], remove: [], honer_feedback: "" });
     await hub.submitFeedback({ ...(await on("x")), text: "again", files: draft("x", "z") });
     await hub.idle();
     assert.equal(judge.cases.length, 3);
@@ -249,6 +257,77 @@ describe("the judge", () => {
     await hub.idle();
     assert.match(hub.store.judgments("x").find((j) => j.state === "failed")!.error!, /changed while the judge was deciding/);
     assert.deepEqual(hub.store.versions("x").map((v) => v.note), ["v3", "Revert to version 1", "v2", "v1"]);
+  });
+});
+
+describe("edits", () => {
+  const twoFacts = "- Run `npm run lint` before committing.\n- Deploy with `make ship`.";
+  const edit = (old: string, now: string): Decision => ({ ...noChange, reasoning: "The report shows it.", changed: true, note: "fix", edits: [{ path: "SKILL.md", old, new: now }] });
+
+  test("change only the text they name, leaving every other file and line as it was", async () => {
+    await hub.submitFeedback({ skill: "x", text: "make it", files: [...draft("x", twoFacts), { path: "notes.md", content: "keep me" }] });
+    await hub.idle();
+    judge.decide_ = () => edit("`make ship`", "`make deploy`");
+    hub.judgeNow("x");
+    await hub.idle();
+    assert.equal(hub.skill("x").version, 2);
+    const [before, after] = [await hub.files("x", 1), await hub.files("x", 2)];
+    assert.deepEqual(after.find((f) => f.path === "notes.md"), before.find((f) => f.path === "notes.md"));
+    assert.equal(after.find((f) => f.path === "SKILL.md")!.content, before.find((f) => f.path === "SKILL.md")!.content.replace("`make ship`", "`make deploy`"));
+    const diff = await hub.library.diff("x", hub.store.versions("x")[0]!.commit);
+    assert.deepEqual(diff.split("\n").filter((l) => /^[-+]/.test(l) && !/^(---|\+\+\+) /.test(l)), ["-- Deploy with `make ship`.", "+- Deploy with `make deploy`."]);
+  });
+
+  test("whose old text is not in the file, or is in it twice, is refused, and the retry told which edit to correct", async () => {
+    await hub.submitFeedback({ skill: "x", text: "make it", files: draft("x", twoFacts) });
+    await hub.idle();
+    judge.cases = [];
+    judge.decide_ = (c) =>
+      c.failure
+        ? { ...edit("`make ship`", "`make deploy`"), edits: [edit("`npm run lint`", "`npm run check`").edits[0]!, edit("`make ship`", "`make deploy`").edits[0]!] }
+        : { ...edit("x", "y"), edits: [edit("`npm run lint`", "`npm run check`").edits[0]!, edit("`make shipit`", "z").edits[0]!] };
+    hub.judgeNow("x");
+    await hub.idle();
+    assert.equal(judge.cases.length, 2);
+    assert.match(judge.cases[1]!.failure!, /edit 2 \(on SKILL\.md\): its old text is not in the file; copy it exactly/);
+    assert.match(render(judge.cases[1]!), /<your_last_attempt_was_refused>\nedit 2/);
+    assert.match((await hub.current("x"))[0]!.content, /`npm run check`[\s\S]*`make deploy`/);
+
+    judge.cases = [];
+    judge.decide_ = (c) => (c.failure ? noChange : edit("`", "'"));
+    hub.judgeNow("x");
+    await hub.idle();
+    assert.match(judge.cases[1]!.failure!, /edit 1 \(on SKILL\.md\): its old text appears more than once/);
+  });
+});
+
+describe("a skill's own limit", () => {
+  test("is set by an admin, shown with the skill, and holds for the judge and for people", async () => {
+    await hub.submitFeedback({ skill: "x", text: "make it", files: draft("x", "short") });
+    await hub.idle();
+    const size = (await hub.current("x"))[0]!.content.length;
+    assert.equal(hub.list()[0]!.limit, 20_000);
+    hub.setLimit("x", size + 20);
+    assert.equal(hub.list()[0]!.limit, size + 20);
+    assert.throws(() => hub.setLimit("x", 0), /whole number of characters/);
+
+    judge.cases = [];
+    judge.decide_ = (c) => (c.failure ? noChange : { ...noChange, changed: true, note: "grow", edits: [{ path: "SKILL.md", old: "short", new: "s".repeat(40) }] });
+    hub.judgeNow("x");
+    await hub.idle();
+    assert.equal(judge.cases[0]!.maxChars, size + 20);
+    assert.match(judge.cases[1]!.failure!, new RegExp(`over the cap of ${size + 20}`));
+    assert.equal(hub.skill("x").version, 1);
+    await assert.rejects(hub.edit("x", { write: [{ path: "more.md", content: "y".repeat(21) }] }, ""), /over the cap/);
+    await assert.rejects(hub.submitFeedback({ ...(await on("x")), files: [...draft("x", "s".repeat(40))] }), /over the cap/);
+
+    // Lowered below what it holds: it may shrink, not grow.
+    hub.setLimit("x", 10);
+    await assert.rejects(hub.edit("x", { write: [{ path: "more.md", content: "y" }] }, ""), /over the cap of 10/);
+    await hub.edit("x", { write: [{ path: "SKILL.md", content: skillMd("x", "s") }] }, "Trim.");
+    assert.equal(hub.skill("x").version, 2);
+    hub.setLimit("x", null);
+    assert.equal(hub.list()[0]!.limit, 20_000);
   });
 });
 

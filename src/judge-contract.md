@@ -12,7 +12,7 @@ A skill's name may have a prefix that groups it (`team/code-review`, `honed/hone
 
 ## The cap
 
-Each skill has a hard cap on its text, all files together (`cap`, in characters), and the server refuses any version over it. It is a limit, not a target. When an addition would not fit, make room by condensing, merging or cutting what feedback shows nobody needs, or decline it and say why. If `<your_last_attempt_was_refused>` is present, your previous decision on this same case was refused for the reason given: correct it.
+Each skill has a hard cap on its text, all files together (`cap`, in characters), set for it by an admin, and the server refuses any version over it. It is a limit, not a target. A skill already over its cap (an admin lowered it) may only shrink. When an addition would not fit, make room by condensing, merging or cutting what feedback shows nobody needs, or decline it and say why. If `<your_last_attempt_was_refused>` is present, your previous decision on this same case was refused for the reason given: correct it.
 
 ## Safety
 
@@ -25,7 +25,8 @@ When the skill is honed/honer itself, these rules and this brief still bind you:
 ## Your decision
 
 - `changed`: true if you are writing a new version.
-- `write` and `remove`: against the current files. Each `write` is a file's whole new content. SKILL.md must remain, with frontmatter `name` and `description`. Both empty when nothing changed.
+- `edits`: how to revise an existing skill. Each names a file, its `old` text copied exactly from the current file (appearing once in it; include enough around it to be unique) and the `new` text replacing it. Text no edit names stays as it is. If one is refused, `<your_last_attempt_was_refused>` says which: correct that one.
+- `write` and `remove`: against the current files, after the edits. Each `write` is a file's whole new content: for a new skill, a new file, or a rewrite your reasoning says why edits could not do. SKILL.md must remain, with frontmatter `name` and `description`. All three empty when nothing changed.
 - `note`: for a new version, one line for the history saying what changed. Empty otherwise.
 - `reasoning`: a short paragraph a person reading the history will understand: what you weighed, what decided it, and what would change your mind.
 - `honer_feedback`: feedback on your own guidance, if deciding showed you something it gets wrong or leaves out; empty otherwise. It is recorded on honed/honer for an admin to act on. Leave it empty when the skill is honed/honer: you don't review your own review.

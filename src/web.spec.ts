@@ -22,8 +22,8 @@ const takeDraft: Judge = {
   async decide(c) {
     const d = [...c.feedback].reverse().find((f) => f.draft.length);
     return (d
-      ? { reasoning: "Supported by the report.", changed: true, note: d.text, write: d.draft.map((f) => ({ ...f, executable: f.executable ?? false })), remove: [], honer_feedback: "" }
-      : { reasoning: "Not yet.", changed: false, note: "", write: [], remove: [], honer_feedback: "" }) satisfies Decision;
+      ? { reasoning: "Supported by the report.", changed: true, note: d.text, edits: [], write: d.draft.map((f) => ({ ...f, executable: f.executable ?? false })), remove: [], honer_feedback: "" }
+      : { reasoning: "Not yet.", changed: false, note: "", edits: [], write: [], remove: [], honer_feedback: "" }) satisfies Decision;
   },
 };
 
@@ -285,6 +285,19 @@ describe("a server with tokens", () => {
     const deleted = await fetch(`${s.base}/api/skills/x/delete`, { method: "POST", headers: { ...WRITE, authorization: `Bearer ${admin}` }, body: JSON.stringify({ reason: "done" }) });
     assert.equal(deleted.status, 200);
     assert.equal((await fetch(`${s.base}/api/skills/x`, { headers: { authorization: `Bearer ${admin}` } })).status, 404);
+  });
+
+  test("lets only an admin set a skill's size limit, shown on its page", async () => {
+    const set = (token: string, maxChars: string) => fetch(`${s.base}/api/skills/team/deploys/limit`, { method: "POST", headers: { ...WRITE, authorization: `Bearer ${token}` }, body: JSON.stringify({ maxChars }) });
+    assert.equal((await set(agent, "5000")).status, 403);
+    assert.equal((await set(admin, "5000")).status, 200);
+    assert.equal(s.hub.skill("team/deploys").maxChars, 5000);
+    const page = await (await fetch(`${s.base}/skills/team/deploys`, { headers: { authorization: `Bearer ${admin}` } })).text();
+    assert.match(page, /\d+ of 5000 characters/);
+    assert.match(page, /action="\/api\/skills\/team\/deploys\/limit"/);
+    assert.equal((await set(admin, "nope")).status, 400);
+    assert.equal((await set(admin, "")).status, 200);
+    assert.equal(s.hub.skill("team/deploys").maxChars, null);
   });
 
   test("signs a person in with a token, into a cookie the page then uses", async () => {

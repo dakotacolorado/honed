@@ -288,14 +288,14 @@ function feedbackCard(f: Feedback): Html {
 /** A search snippet worth showing: one that matched more than the description already on the card. */
 const addsToDescription = (snip: string, description: string) => !description.toLowerCase().includes(snip.replace(/[«»…]/g, "").trim().toLowerCase());
 
-function skillCard(s: SkillSummary, cap: number, match?: string): Html {
+function skillCard(s: SkillSummary, match?: string): Html {
   const prefix = prefixOf(s.name);
   return html`<a class="skill" href="/skills/${s.name}">
     ${prefix ? html`<div class="tag">${prefix}/</div>` : ""}
     <div class="name">${baseName(s.name)}</div>
     <div class="desc">${s.description}</div>
     ${match && addsToDescription(match, s.description) ? snippet(match) : ""}
-    <div class="meta"><span>v${s.version}</span>${s.waiting ? pill(`${s.waiting} waiting`, "waiting") : ""}${capWarning(s.chars, cap)}<span>${ago(s.updatedAt)}</span></div>
+    <div class="meta"><span>v${s.version}</span>${s.waiting ? pill(`${s.waiting} waiting`, "waiting") : ""}${capWarning(s.chars, s.limit)}<span>${ago(s.updatedAt)}</span></div>
   </a>`;
 }
 
@@ -342,9 +342,9 @@ function home(hub: Hub, origin: string, viewer: Viewer, q: string, group: string
       </form>
       ${results
         ? html`<h2>${results.length} matching “${q}” · <a href="/">clear</a></h2>
-            ${results.length ? html`<div class="grid">${results.map((r) => skillCard(r, hub.maxChars, r.snippet))}</div>` : html`<div class="empty">No skill mentions that. <a href="/">See them all</a>.</div>`}`
+            ${results.length ? html`<div class="grid">${results.map((r) => skillCard(r, r.snippet))}</div>` : html`<div class="empty">No skill mentions that. <a href="/">See them all</a>.</div>`}`
         : skills.length
-          ? html`${chips(skills, group)}<div class="grid">${shown.map((s) => skillCard(s, hub.maxChars))}</div>`
+          ? html`${chips(skills, group)}<div class="grid">${shown.map((s) => skillCard(s))}</div>`
           : html`<div class="empty">No skills yet.<br />Ask an agent to <code>submit_feedback</code> under a new name with a draft <code>SKILL.md</code>, and the first one will be honed into shape.</div>`}
       ${judgments.length ? html`<h2>recently honed</h2><div class="feed">${judgments.map(feedLine)}</div>` : ""}`,
     { refresh: !results && judgments.some((j) => j.state === "running"), viewer, version, home: true, footer: connected ? html` · ${connect(origin, viewer, false, true)}` : undefined },
@@ -447,9 +447,14 @@ async function skillPage(hub: Hub, name: string, viewer: Viewer, version: string
     `${name} · honed`,
     html`<a class="back" href="/">← all skills</a>
       ${prefix ? html`<div class="tag" style="margin-top:14px">${prefix}/</div>` : ""}
-      <h1 style="${prefix ? "" : "margin-top:14px"}">${baseName(name)} ${pill(`v${skill.version}`)} ${judging ? pill("honing", "running") : ""} ${capWarning(summary.chars, hub.maxChars)}</h1>
+      <h1 style="${prefix ? "" : "margin-top:14px"}">${baseName(name)} ${pill(`v${skill.version}`)} ${judging ? pill("honing", "running") : ""} ${capWarning(summary.chars, summary.limit)}</h1>
       <p>${summary.description}</p>
-      <div class="meta"><span>updated ${ago(summary.updatedAt)}</span></div>
+      <div class="meta"><span>updated ${ago(summary.updatedAt)}</span><span title="${skill.maxChars === null ? "the library's default limit" : "this skill's own limit"}">${summary.chars} of ${summary.limit} characters</span></div>
+      ${admin && !editing && !adding
+        ? html`<details><summary class="small muted">set its size limit</summary>
+            <p class="small muted">The most text this skill may hold, all its files together, for the honer's revisions and people's edits alike. Leave it empty for the library's default (${hub.maxChars}). Text already over a lowered limit may only shrink.</p>
+            ${action(`/api/skills/${name}/limit`, "Set limit", { extra: html`<input type="number" name="maxChars" min="1" value="${skill.maxChars ?? ""}" placeholder="${hub.maxChars}" aria-label="Limit in characters" />` })}</details>`
+        : ""}
       ${name === HONER_SKILL
         ? html`<div class="note">This is the honer's own guidance: how honed revises every skill. Agents and the honer itself leave feedback on it as they work; it changes only when an admin chooses <b>Revise now</b>, and the honer never reviews its own review. Its safety rules and the cap live in honed itself and can't be edited away.</div>`
         : ""}
@@ -582,6 +587,11 @@ export function app(hub: Hub, version: string, opts: AppOptions = {}): Hono<Env>
     if (!remove && !change.write![0]!.path) throw new Refusal("a file needs a path");
     const shown = await diffView(await hub.preview(c.req.param("name"), change));
     return c.json({ html: String(shown) });
+  });
+  writes.post(`/skills/:name${NAME_ROUTE}/limit`, async (c) => {
+    const b = await body(c);
+    const raw = typeof b.maxChars === "number" ? String(b.maxChars) : field(b, "maxChars").trim();
+    return c.json(hub.setLimit(c.req.param("name"), raw === "" ? null : Number(raw)));
   });
   writes.post(`/skills/:name${NAME_ROUTE}/delete`, async (c) => c.json(await hub.delete(c.req.param("name"), field(await body(c), "reason"), c.get("viewer").caller.name)));
   writes.post(`/skills/:name${NAME_ROUTE}/judge`, (c) => (hub.judgeNow(c.req.param("name")), c.json({ revising: true })));

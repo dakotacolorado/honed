@@ -40,7 +40,9 @@ by Claude Code on your machine, with your login (`claude -p`, with no tools), so
 | `submit_feedback` | A report on a skill: the exact text that is wrong (`quote`), the `evidence` (a file as it is now, or a command and what it printed) and `what_changed`, optionally with files. A report missing any, or quoting text the skill lacks, is refused with how to fix it. Under a new name, it asks for that skill. |
 
 Skills are folders in Claude Code's format: a `SKILL.md` plus any scripts, references or templates. Each has a
-hard cap on its text (20,000 characters by default), so a skill can be revised but never bloated.
+hard cap on its text (20,000 characters by default, or `--max-chars`; an admin can set each skill's own on its page),
+so a skill can be revised but never bloated. The honer revises an existing skill by editing the text that's there, so
+what no edit names stays word for word.
 
 Names can have one prefix that groups them: `team/deploys`, `honed/honer`. A skill's `SKILL.md` frontmatter
 names only the part after it, as Claude Code expects.
