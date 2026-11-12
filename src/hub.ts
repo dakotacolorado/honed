@@ -11,6 +11,7 @@ import {
   FEEDBACK_BATCH,
   frontmatter,
   HONER_AUTHOR,
+  prefixOf,
   HONER_SKILL,
   WRITING_SKILL,
   JUDGMENT_ATTEMPTS,
@@ -225,13 +226,14 @@ export class Hub {
     };
   }
 
-  list(): SkillSummary[] {
-    return this.store.skills().map((s) => this.summary(s));
+  /** Every skill, or those under `prefixes`. */
+  list(prefixes?: string[]): SkillSummary[] {
+    return this.store.skills().filter((s) => !prefixes || prefixes.includes(prefixOf(s.name))).map((s) => this.summary(s));
   }
 
-  /** Skills whose name, description or text match any word of `query`, best match first. */
-  search(query: string, limit = 10): SearchResult[] {
-    return this.store.search(query, limit).flatMap((hit) => {
+  /** Skills whose name, description or text match any word of `query`, best match first; only those under `prefixes`, if given. */
+  search(query: string, limit = 10, prefixes?: string[]): SearchResult[] {
+    return this.store.search(query, limit, prefixes).flatMap((hit) => {
       const skill = this.store.skill(hit.name);
       return skill ? [{ ...this.summary(skill), snippet: hit.snippet }] : [];
     });
