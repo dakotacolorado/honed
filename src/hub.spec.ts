@@ -157,7 +157,7 @@ describe("a report", () => {
     assert.equal(hub.skill("new-one").version, 1);
   });
 
-  test("a library made before reports and per-skill limits opens, its old feedback and skills read without them", async () => {
+  test("a library made before reports, per-skill limits and protection opens, its old feedback, skills and judgments read without them", async () => {
     hub.close();
     const old = await mkdtemp(join(tmpdir(), "honed-old-"));
     try {
@@ -167,10 +167,17 @@ describe("a report", () => {
       // A skills table from before each skill had its own limit; version 0 so it needs no files in git.
       db.exec("CREATE TABLE skills (name TEXT PRIMARY KEY, version INTEGER NOT NULL, created_at TEXT NOT NULL)");
       db.exec("INSERT INTO skills VALUES ('x', 0, '2026-01-01T00:00:00.000Z')");
+      // A judgments table from before a held revision's review.
+      db.exec("CREATE TABLE judgments (id TEXT PRIMARY KEY, skill TEXT NOT NULL, by TEXT NOT NULL, actor TEXT, state TEXT NOT NULL, started_at TEXT NOT NULL, finished_at TEXT, changed INTEGER, reasoning TEXT NOT NULL, error TEXT, version INTEGER)");
+      db.exec("INSERT INTO judgments VALUES ('j1', 'x', 'judge', NULL, 'done', '2026-01-01T00:00:00.000Z', '2026-01-01T00:01:00.000Z', 0, 'Not yet.', NULL, NULL)");
       db.close();
       hub = await Hub.open(old, null, { starters: false, maxChars: 5000 });
       assert.deepEqual(hub.store.feedback("x").map((f) => [f.text, f.quote, f.evidence, f.whatChanged]), [["old words", null, [], null]]);
       assert.equal(hub.store.skill("x")?.maxChars, null);
+      assert.equal(hub.store.skill("x")?.protected, false);
+      assert.equal(hub.pending("x"), undefined);
+      const j = hub.judgment("j1");
+      assert.deepEqual([j.state, j.changed, j.reasoning, j.review], ["done", false, "Not yet.", null]);
       assert.equal(hub.limit("x"), 5000, "the library's default");
       hub.setLimit("x", 1234);
       hub.store.putSkill({ name: "x", version: 0, createdAt: "2026-01-01T00:00:00.000Z" });
