@@ -124,7 +124,7 @@ it is running**: agents connected without one get 401s until they send it.
 
 ## How it works
 
-One Node process serves the page, a small JSON API ([its docs](#the-api)) and MCP at `/mcp`. Skills live in a git repo under `~/.honed`
+One Node process serves the page, the API the page reads and an admin writes through ([its docs](#the-api)), and MCP at `/mcp`. Skills live in a git repo under `~/.honed`
 (every version is a commit, so the library is readable and portable without honed), with SQLite alongside for
 feedback, tokens and full-text search. When feedback calls for it, Claude revises the skill (through Claude Code
 headless on a dev machine, or the Claude API on a server), with no tools: it reads the skill, the feedback and its own
@@ -140,8 +140,8 @@ needed.
 
 ## The API
 
-The page reads skills, feedback and judgments through a small JSON API under `/api`, and an admin's edits, reverts and
-deletions go through it too. Anything else may use it the same way. Its contract is [`openapi.json`](./openapi.json),
+The API under `/api` is how honed's page, or a script of yours, reads the library (each skill with its files, versions,
+feedback, and why it changed) and how an admin edits, reverts or deletes a skill by hand. Agents use MCP instead. Its contract is [`openapi.json`](./openapi.json),
 rendered in [`docs/API.md`](./docs/API.md); a running honed serves both at `/openapi.json` and `/docs/api`, with no
 token needed. Reads are `GET`s; every write is a `POST` with the `x-honed: 1` header and an admin token.
 

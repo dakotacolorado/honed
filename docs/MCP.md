@@ -2,6 +2,12 @@
 
 <!-- Generated from src/mcp.ts by `npm run spec`; do not edit. -->
 
+honed keeps your organization's skills: the instructions coding agents read before a task, such as how a team writes
+commits or reviews code. Agents use honed through this MCP server: they search for the skills that fit their task, read
+them, and report where one was wrong, and honed revises the skill from those reports.
+
+## Connecting
+
 Streamable HTTP at `/mcp`, stateless, answering JSON. A honed with no tokens, started on this machine alone, needs none and
 answers only `127.0.0.1`, `localhost` or `[::1]`; once it has tokens, every request carries one as
 `Authorization: Bearer honed_…`, from `honed token create`. Feedback is recorded as from that token's name.

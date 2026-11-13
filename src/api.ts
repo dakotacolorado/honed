@@ -9,7 +9,9 @@ export const WRITE_HEADER = "x-honed";
 export const COOKIE = "honed_token";
 
 /** The API's overview, at the top of its docs. Markdown. */
-export const OVERVIEW = `honed's JSON API: the skills in the library, the feedback on them, and the judgments that changed them, read by the page and by anything else that wants them. Agents use the MCP server at \`/mcp\` instead (its docs are at \`/docs/mcp\`).
+export const OVERVIEW = `honed keeps your organization's skills: the instructions coding agents read before a task, such as how a team writes commits or reviews code. When a skill turns out to be wrong, the agent that hit it reports it, and honed revises the skill from those reports, keeping every version and why it changed.
+
+This API is how honed's web page, or a script of yours, reads the library: each skill with its files, versions and feedback, and why it changed. It is also how an admin edits, reverts or deletes a skill by hand. Agents don't use it: they use the MCP server at \`/mcp\` (docs at \`/docs/mcp\`).
 
 ## Tokens
 
@@ -168,7 +170,7 @@ export const listSkillsRoute = createRoute({
   path: "/api/skills",
   operationId: "listSkills",
   tags: ["skills"],
-  summary: "List or search skills",
+  summary: "List skills",
   description: "Every skill in the library, by name; with `q`, the skills whose name, description or text match any of its words, best first, each with where it matched.",
   security,
   request: {
@@ -188,7 +190,7 @@ export const getSkillRoute = createRoute({
   path: "/api/skills/{name}",
   operationId: "getSkill",
   tags: ["skills"],
-  summary: "Get a skill",
+  summary: "Get skill",
   description: "A skill with its files, every version, and its latest feedback.",
   security,
   request: { params: NameParam },
@@ -200,7 +202,7 @@ export const getJudgmentRoute = createRoute({
   path: "/api/judgments/{id}",
   operationId: "getJudgment",
   tags: ["judgments"],
-  summary: "Get a judgment",
+  summary: "Get judgment",
   description: "One change, or decision not to change, to a skill, with the feedback it considered: why the skill is as it is.",
   security,
   request: { params: z.object({ id: param(z.string(), "id", "path", "The judgment's id, as a skill's versions and feedback name it.") }) },
@@ -211,7 +213,7 @@ export const revertRoute = createRoute({
   method: "post",
   path: "/api/skills/{name}/revert",
   operationId: "revertSkill",
-  summary: "Revert a skill to an earlier version",
+  summary: "Revert skill",
   description: "Makes a new version holding an earlier version's files. Needs an admin token.",
   ...write,
   request: {
@@ -228,7 +230,7 @@ export const editRoute = createRoute({
   method: "post",
   path: "/api/skills/{name}/edit",
   operationId: "editSkill",
-  summary: "Write or remove one of a skill's files",
+  summary: "Edit file",
   description: "Writes one file whole, or removes one, as a new version, held to the same rules as any skill. Needs an admin token.",
   ...write,
   request: { ...write.request, body: json(FileChangeSchema, "The file to write, or the one to remove.") },
@@ -242,7 +244,7 @@ export const previewRoute = createRoute({
   method: "post",
   path: "/api/skills/{name}/preview",
   operationId: "previewEdit",
-  summary: "Preview an edit as a diff",
+  summary: "Preview edit",
   description: "What the same request to `edit` would change, refused as it would be. Changes nothing. Needs an admin token, since the page shows it before saving.",
   ...write,
   request: { ...write.request, body: json(FileChangeSchema, "The file to write, or the one to remove.") },
@@ -256,7 +258,7 @@ export const limitRoute = createRoute({
   method: "post",
   path: "/api/skills/{name}/limit",
   operationId: "setSkillLimit",
-  summary: "Set a skill's size limit",
+  summary: "Set size limit",
   description: "The most text the skill may hold, all its files together, for the judge's revisions and people's edits alike; it applies to every change from now on, and text already over it may only shrink. Needs an admin token.",
   ...write,
   request: {
@@ -283,7 +285,7 @@ export const deleteRoute = createRoute({
   method: "post",
   path: "/api/skills/{name}/delete",
   operationId: "deleteSkill",
-  summary: "Delete a skill",
+  summary: "Delete skill",
   description: `Takes a skill out of the library and search; its history stays in git, and feedback under its name can bring it back. Feedback waiting on it is closed by the deletion. \`${HONER_SKILL}\` cannot be deleted. Needs an admin token.`,
   ...write,
   request: { ...write.request, body: json(z.object({ reason: Reason }).openapi("Delete"), "Why.") },
@@ -297,7 +299,7 @@ export const judgeRoute = createRoute({
   method: "post",
   path: "/api/skills/{name}/judge",
   operationId: "reviseSkill",
-  summary: "Revise a skill now",
+  summary: "Revise now",
   description: `Has the judge consider the skill now, whatever feedback is waiting, judgment reports held for agreement included, which this approves; the only way \`${HONER_SKILL}\` is revised. Answers at once: the judgment appears in the skill's history when done. Needs an admin token.`,
   ...write,
   responses: {

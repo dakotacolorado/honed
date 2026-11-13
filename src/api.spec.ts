@@ -84,3 +84,11 @@ test("every page links the API and MCP docs from its docs menu, the sign-in page
     await rm(dir, { recursive: true, force: true });
   }
 });
+
+test("every operation is named in at most three words, for the docs' index", async () => {
+  const long = Object.values((await served).paths)
+    .flatMap((ops) => Object.values(ops) as { summary?: string }[])
+    .map((op) => op.summary ?? "")
+    .filter((summary) => !summary || summary.split(/\s+/).length > 3);
+  assert.deepEqual(long, []);
+});

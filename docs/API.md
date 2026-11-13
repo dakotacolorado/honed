@@ -1,8 +1,10 @@
 # honed
 
-> Version 0.3.9
+> Version 0.3.10
 
-honed's JSON API: the skills in the library, the feedback on them, and the judgments that changed them, read by the page and by anything else that wants them. Agents use the MCP server at `/mcp` instead (its docs are at `/docs/mcp`).
+honed keeps your organization's skills: the instructions coding agents read before a task, such as how a team writes commits or reviews code. When a skill turns out to be wrong, the agent that hit it reports it, and honed revises the skill from those reports, keeping every version and why it changed.
+
+This API is how honed's web page, or a script of yours, reads the library: each skill with its files, versions and feedback, and why it changed. It is also how an admin edits, reverts or deletes a skill by hand. Agents don't use it: they use the MCP server at `/mcp` (docs at `/docs/mcp`).
 
 ## Tokens
 
@@ -25,15 +27,15 @@ A refusal answers `{ "error": "…" }` in words a person can act on, with its st
 
 | Method | Path | Description |
 | --- | --- | --- |
-| GET | [/api/skills](#getapiskills) | List or search skills |
-| GET | [/api/skills/{name}](#getapiskillsname) | Get a skill |
-| GET | [/api/judgments/{id}](#getapijudgmentsid) | Get a judgment |
-| POST | [/api/skills/{name}/revert](#postapiskillsnamerevert) | Revert a skill to an earlier version |
-| POST | [/api/skills/{name}/edit](#postapiskillsnameedit) | Write or remove one of a skill's files |
-| POST | [/api/skills/{name}/preview](#postapiskillsnamepreview) | Preview an edit as a diff |
-| POST | [/api/skills/{name}/limit](#postapiskillsnamelimit) | Set a skill's size limit |
-| POST | [/api/skills/{name}/delete](#postapiskillsnamedelete) | Delete a skill |
-| POST | [/api/skills/{name}/judge](#postapiskillsnamejudge) | Revise a skill now |
+| GET | [/api/skills](#getapiskills) | List skills |
+| GET | [/api/skills/{name}](#getapiskillsname) | Get skill |
+| GET | [/api/judgments/{id}](#getapijudgmentsid) | Get judgment |
+| POST | [/api/skills/{name}/revert](#postapiskillsnamerevert) | Revert skill |
+| POST | [/api/skills/{name}/edit](#postapiskillsnameedit) | Edit file |
+| POST | [/api/skills/{name}/preview](#postapiskillsnamepreview) | Preview edit |
+| POST | [/api/skills/{name}/limit](#postapiskillsnamelimit) | Set size limit |
+| POST | [/api/skills/{name}/delete](#postapiskillsnamedelete) | Delete skill |
+| POST | [/api/skills/{name}/judge](#postapiskillsnamejudge) | Revise now |
 
 ## Reference Table
 
@@ -66,7 +68,7 @@ A refusal answers `{ "error": "…" }` in words a person can act on, with its st
 ### [GET]/api/skills
 
 - Summary  
-  List or search skills
+  List skills
 
 - Operation id  
   listSkills
@@ -134,7 +136,7 @@ limit?: integer //default: 20
 ### [GET]/api/skills/{name}
 
 - Summary  
-  Get a skill
+  Get skill
 
 - Operation id  
   getSkill
@@ -270,7 +272,7 @@ name: string //pattern: ^(?:[a-z0-9]+(?:-[a-z0-9]+)*\/)?[a-z0-9]+(?:-[a-z0-9]+)*
 ### [GET]/api/judgments/{id}
 
 - Summary  
-  Get a judgment
+  Get judgment
 
 - Operation id  
   getJudgment
@@ -381,7 +383,7 @@ id: string
 ### [POST]/api/skills/{name}/revert
 
 - Summary  
-  Revert a skill to an earlier version
+  Revert skill
 
 - Operation id  
   revertSkill
@@ -506,7 +508,7 @@ The version to revert to.
 ### [POST]/api/skills/{name}/edit
 
 - Summary  
-  Write or remove one of a skill's files
+  Edit file
 
 - Operation id  
   editSkill
@@ -646,7 +648,7 @@ The file to write, or the one to remove.
 ### [POST]/api/skills/{name}/preview
 
 - Summary  
-  Preview an edit as a diff
+  Preview edit
 
 - Operation id  
   previewEdit
@@ -757,7 +759,7 @@ The file to write, or the one to remove.
 ### [POST]/api/skills/{name}/limit
 
 - Summary  
-  Set a skill's size limit
+  Set size limit
 
 - Operation id  
   setSkillLimit
@@ -867,7 +869,7 @@ The limit to set.
 ### [POST]/api/skills/{name}/delete
 
 - Summary  
-  Delete a skill
+  Delete skill
 
 - Operation id  
   deleteSkill
@@ -1001,7 +1003,7 @@ Why.
 ### [POST]/api/skills/{name}/judge
 
 - Summary  
-  Revise a skill now
+  Revise now
 
 - Operation id  
   reviseSkill
