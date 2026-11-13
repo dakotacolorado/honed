@@ -151,6 +151,7 @@ export function mcpServer(hub: Hub, version: string, caller: Caller, local: bool
         }
         const { next } = await hub.submitFeedback({ skill: name, quote, evidence, whatChanged: what_changed, text: feedback, files, author: authorOf(caller, local, author) });
         if (next.kind === "off") return "Recorded. Revision is off on this server, so it will be read by a person.";
+        if (next.kind === "protected") return `Recorded. ${name} is protected: a revision from feedback is kept only once an admin approves it, and until then you read it as it is.`;
         if (next.kind === "admin") return `Recorded. ${name} is revised only when an admin asks; your feedback will be there when they do.`;
         return hub.store.skill(name)
           ? `Recorded. The honer is judging it now: if your evidence shows the quoted text is wrong, ${name} is fixed from it; anything else waits until other sessions or an admin agree.`

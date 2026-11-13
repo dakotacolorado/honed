@@ -1,5 +1,5 @@
 import { DatabaseSync } from "node:sqlite";
-import type { DraftFile, Evidence, Feedback, Judgment, Skill, Version } from "./domain.ts";
+import type { DraftFile, Evidence, Feedback, Judgment, PendingRevision, Review, Skill, SkillFile, Version } from "./domain.ts";
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS skills (name TEXT PRIMARY KEY, version INTEGER NOT NULL, created_at TEXT NOT NULL);
@@ -17,6 +17,11 @@ CREATE TABLE IF NOT EXISTS judgments (
   finished_at TEXT, changed INTEGER, reasoning TEXT NOT NULL, error TEXT, version INTEGER
 );
 CREATE INDEX IF NOT EXISTS judgments_by_skill ON judgments (skill, started_at);
+CREATE TABLE IF NOT EXISTS pending (
+  judgment TEXT PRIMARY KEY, skill TEXT NOT NULL, version INTEGER NOT NULL, note TEXT NOT NULL, files TEXT NOT NULL,
+  at TEXT NOT NULL, open INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS pending_by_skill ON pending (skill, open);
 CREATE TABLE IF NOT EXISTS tokens (name TEXT PRIMARY KEY, hash TEXT NOT NULL UNIQUE, admin INTEGER NOT NULL, created_at TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
 CREATE VIRTUAL TABLE IF NOT EXISTS search USING fts5(name, description, body, tokenize = 'porter unicode61');
@@ -31,6 +36,8 @@ const COLUMNS: { table: string; column: string; definition: string }[] = [
   { table: "feedback", column: "sort", definition: "TEXT" },
   { table: "feedback", column: "sort_why", definition: "TEXT" },
   { table: "feedback", column: "sorted_by", definition: "TEXT" },
+  { table: "skills", column: "protected", definition: "INTEGER NOT NULL DEFAULT 0" },
+  { table: "judgments", column: "review", definition: "TEXT" },
 ];
 
 export interface Token {
@@ -65,7 +72,8 @@ const n = (v: unknown) => Number(v);
 const sn = (v: unknown) => (v === null || v === undefined ? null : String(v));
 const nn = (v: unknown) => (v === null || v === undefined ? null : Number(v));
 
-const skill = (r: Row): Skill => ({ name: s(r.name), version: n(r.version), createdAt: s(r.created_at), maxChars: nn(r.max_chars) });
+const skill = (r: Row): Skill => ({ name: s(r.name), version: n(r.version), createdAt: s(r.created_at), maxChars: nn(r.max_chars), protected: n(r.protected) === 1 });
+const pending = (r: Row): PendingRevision => ({ judgment: s(r.judgment), skill: s(r.skill), version: n(r.version), note: s(r.note), files: JSON.parse(s(r.files)) as SkillFile[], at: s(r.at) });
 const version = (r: Row): Version => ({ skill: s(r.skill), version: n(r.version), commit: s(r.commit_id), note: s(r.note), judgment: s(r.judgment), at: s(r.at) });
 const feedback = (r: Row): Feedback => ({
   id: s(r.id),
@@ -95,6 +103,7 @@ const judgment = (r: Row): Judgment => ({
   reasoning: s(r.reasoning),
   error: sn(r.error),
   version: nn(r.version),
+  review: r.review === null || r.review === undefined ? null : (JSON.parse(s(r.review)) as Review),
 });
 const token = (r: Row): Token => ({ name: s(r.name), admin: n(r.admin) === 1, createdAt: s(r.created_at) });
 
@@ -146,12 +155,34 @@ export class Store {
     const r = this.get("SELECT * FROM skills WHERE name = ?", name);
     return r && skill(r);
   }
-  /** Makes a skill, or moves it to a new version; its limit stays as an admin set it. */
-  putSkill(v: Omit<Skill, "maxChars">): void {
+  /** Makes a skill, or moves it to a new version; its limit and protection stay as an admin set them. */
+  putSkill(v: Omit<Skill, "maxChars" | "protected">): void {
     this.run("INSERT INTO skills (name, version, created_at) VALUES (?, ?, ?) ON CONFLICT (name) DO UPDATE SET version = excluded.version", v.name, v.version, v.createdAt);
   }
   setMaxChars(name: string, maxChars: number | null): void {
     this.run("UPDATE skills SET max_chars = ? WHERE name = ?", maxChars, name);
+  }
+
+  setProtected(name: string, value: boolean): void {
+    this.run("UPDATE skills SET protected = ? WHERE name = ?", value ? 1 : 0, name);
+  }
+
+  /** The revision of a skill waiting for an admin, if one is. */
+  pending(name: string): PendingRevision | undefined {
+    const r = this.get("SELECT * FROM pending WHERE skill = ? AND open = 1", name);
+    return r && pending(r);
+  }
+  /** The revision a judgment held, waiting or decided, so its change can still be shown. */
+  pendingOf(judgment: string): PendingRevision | undefined {
+    const r = this.get("SELECT * FROM pending WHERE judgment = ?", judgment);
+    return r && pending(r);
+  }
+  addPending(p: PendingRevision): void {
+    this.run("INSERT INTO pending (judgment, skill, version, note, files, at, open) VALUES (?, ?, ?, ?, ?, ?, 1)", p.judgment, p.skill, p.version, p.note, JSON.stringify(p.files), p.at);
+  }
+  /** Ends a revision's wait, approved or declined; its files stay, to show what was decided. */
+  closePending(judgment: string): void {
+    this.run("UPDATE pending SET open = 0 WHERE judgment = ?", judgment);
   }
 
   versions(name: string): Version[] {
@@ -232,9 +263,9 @@ export class Store {
   }
   putJudgment(j: Judgment): void {
     this.run(
-      `INSERT INTO judgments (id, skill, by, actor, state, started_at, finished_at, changed, reasoning, error, version) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `INSERT INTO judgments (id, skill, by, actor, state, started_at, finished_at, changed, reasoning, error, version, review) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT (id) DO UPDATE SET state = excluded.state, finished_at = excluded.finished_at, changed = excluded.changed,
-       reasoning = excluded.reasoning, error = excluded.error, version = excluded.version`,
+       reasoning = excluded.reasoning, error = excluded.error, version = excluded.version, review = excluded.review`,
       j.id,
       j.skill,
       j.by,
@@ -246,6 +277,7 @@ export class Store {
       j.reasoning,
       j.error,
       j.version,
+      j.review === null ? null : JSON.stringify(j.review),
     );
   }
   /** Judgments left running by a server that stopped: they will never finish. */

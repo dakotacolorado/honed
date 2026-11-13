@@ -1,5 +1,5 @@
 import { createRoute, z, type OpenAPIHono } from "@hono/zod-openapi";
-import { HONER_SKILL, NAME_ROUTE, SKILL_FILE, type Feedback, type Judgment, type Skill, type Version } from "./domain.ts";
+import { HONER_SKILL, NAME_ROUTE, SKILL_FILE, type Feedback, type Judgment, type PendingRevision, type Skill, type Version } from "./domain.ts";
 import type { SkillSummary } from "./hub.ts";
 
 /** Where the contract is served, generated from the routes declared here. */
@@ -44,6 +44,8 @@ export const SkillSummarySchema = z
     limit: z.number().int().describe("The most text it may hold: its own limit, or the library's default."),
     feedback: z.number().int().describe("Feedback on its current version."),
     waiting: z.number().int().describe("Feedback no revision has considered yet."),
+    protected: z.boolean().describe("Whether a revision from feedback waits for an admin's approval before it is kept."),
+    pending: z.boolean().describe("Whether a revision of it is waiting for an admin now."),
     updatedAt: Timestamp,
   })
   .openapi("SkillSummary");
@@ -101,19 +103,40 @@ export const JudgmentSchema = z
     skill: SkillName,
     by: z.enum(["judge", "person", "starter"]).describe("The judge revising from feedback, a person's edit, revert or deletion, or a starter shipped with honed."),
     actor: z.string().nullable().describe("For a person's change, whose token made it."),
-    state: z.enum(["running", "done", "failed"]),
+    state: z.enum(["running", "pending", "done", "failed"]).describe("`pending`: a revision of a protected skill, made and held until an admin approves or declines it."),
     startedAt: Timestamp,
     finishedAt: Timestamp.nullable(),
     changed: z.boolean().nullable().describe("Whether it changed the skill; null while running."),
     reasoning: z.string().describe("Why: the judge's reasoning, or the reason the person gave."),
     error: z.string().nullable().describe("What went wrong, for a failed judgment."),
     version: z.number().int().nullable().describe("The version it made, if it made one; null for a deletion."),
+    review: z
+      .object({
+        by: z.string().describe("The admin who decided, by their token's name."),
+        approved: z.boolean().describe("True if the revision was kept as a new version; false if it was discarded."),
+        reason: z.string().describe("Why, as the admin gave it; may be empty."),
+        at: Timestamp,
+      })
+      .nullable()
+      .describe("For a held revision of a protected skill, the admin's decision on it; null until then, and for every other judgment."),
   })
   .openapi("Judgment");
 
 const MaxChars = z.number().int().nullable().describe("The most text it may hold, set by an admin; null for the library's default.");
+const Protected = z.boolean().describe("Set by an admin: a revision the honer makes from feedback waits for an admin's approval before it is kept, and agents read the current version meanwhile.");
 
-export const SkillSchema = z.object({ name: SkillName, version: z.number().int(), createdAt: Timestamp, maxChars: MaxChars }).openapi("Skill");
+export const SkillSchema = z.object({ name: SkillName, version: z.number().int(), createdAt: Timestamp, maxChars: MaxChars, protected: Protected }).openapi("Skill");
+
+const PendingSchema = z
+  .object({
+    judgment: z.string().describe("The judgment that made it, with its reasoning and the feedback behind it."),
+    skill: SkillName,
+    version: z.number().int().describe("The version it was made from: it can be approved only while the skill is still that version."),
+    note: z.string().describe("What it changes, in a line."),
+    files: z.array(SkillFileSchema).describe("The skill's files as the revision would make them."),
+    at: Timestamp,
+  })
+  .openapi("PendingRevision");
 
 const SkillDetailSchema = z
   .object({
@@ -121,6 +144,8 @@ const SkillDetailSchema = z
     version: z.number().int(),
     createdAt: Timestamp,
     maxChars: MaxChars,
+    protected: Protected,
+    pending: PendingSchema.nullable().describe("A revision held for an admin's approval, if one is; agents are never served it."),
     files: z.array(SkillFileSchema).describe("Its files at its current version."),
     versions: z.array(VersionSchema).describe("Every version, newest first."),
     feedback: z.array(FeedbackSchema).describe("Its latest feedback, at most 100, newest first."),
@@ -295,6 +320,50 @@ export const deleteRoute = createRoute({
   },
 });
 
+export const protectRoute = createRoute({
+  method: "post",
+  path: "/api/skills/{name}/protect",
+  operationId: "protectSkill",
+  summary: "Protect skill",
+  description: "While a skill is protected, a revision the honer makes from feedback is held for an admin to approve or decline, and agents go on reading the current version; an admin's own edits and reverts apply at once. Needs an admin token.",
+  ...write,
+  request: {
+    ...write.request,
+    body: json(
+      z.object({ protected: z.union([z.boolean(), z.enum(["true", "false"])]).describe("True to protect it, false to stop.") }).openapi("Protect"),
+      "Whether to protect it.",
+    ),
+  },
+  responses: { 200: json(SkillSchema, "The skill, with its protection now."), ...refusals(writeRefusals) },
+});
+
+const heldRefusals = { ...writeRefusals, 404: "No skill has that name, or no revision of it is waiting for approval." };
+
+export const approveRoute = createRoute({
+  method: "post",
+  path: "/api/skills/{name}/approve",
+  operationId: "approveRevision",
+  summary: "Approve revision",
+  description: "Keeps the revision waiting for approval as the skill's next version, from then on what agents read. Needs an admin token.",
+  ...write,
+  request: { ...write.request, body: json(z.object({ reason: Reason }).openapi("Approve"), "Why.") },
+  responses: {
+    200: json(JudgmentSchema, "The judgment that made the revision, now with the version it made and the approval."),
+    ...refusals({ ...heldRefusals, 409: "The skill changed since the revision was made from it: decline it instead." }),
+  },
+});
+
+export const declineRoute = createRoute({
+  method: "post",
+  path: "/api/skills/{name}/decline",
+  operationId: "declineRevision",
+  summary: "Decline revision",
+  description: "Discards the revision waiting for approval: the skill stays as it is, and the decision is kept in its history. Needs an admin token.",
+  ...write,
+  request: { ...write.request, body: json(z.object({ reason: Reason }).openapi("Decline"), "Why.") },
+  responses: { 200: json(JudgmentSchema, "The judgment that made the revision, now with the decline."), ...refusals(heldRefusals) },
+});
+
 export const judgeRoute = createRoute({
   method: "post",
   path: "/api/skills/{name}/judge",
@@ -334,3 +403,4 @@ same<Same<z.infer<typeof JudgmentSchema>, Judgment>>(true);
 same<Same<z.infer<typeof SkillSchema>, Skill>>(true);
 same<Same<z.infer<typeof SkillSummarySchema>, SkillSummary>>(true);
 same<Same<z.infer<typeof VersionSchema>, Version>>(true);
+same<Same<z.infer<typeof PendingSchema>, PendingRevision>>(true);

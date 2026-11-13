@@ -1,6 +1,6 @@
 # honed
 
-> Version 0.3.11
+> Version 0.4.0
 
 honed keeps your organization's skills: the instructions coding agents read before a task, such as how a team writes commits or reviews code. When a skill turns out to be wrong, the agent that hit it reports it, and honed revises the skill from those reports, keeping every version and why it changed.
 
@@ -35,6 +35,9 @@ A refusal answers `{ "error": "…" }` in words a person can act on, with its st
 | POST | [/api/skills/{name}/preview](#postapiskillsnamepreview) | Preview edit |
 | POST | [/api/skills/{name}/limit](#postapiskillsnamelimit) | Set size limit |
 | POST | [/api/skills/{name}/delete](#postapiskillsnamedelete) | Delete skill |
+| POST | [/api/skills/{name}/protect](#postapiskillsnameprotect) | Protect skill |
+| POST | [/api/skills/{name}/approve](#postapiskillsnameapprove) | Approve revision |
+| POST | [/api/skills/{name}/decline](#postapiskillsnamedecline) | Decline revision |
 | POST | [/api/skills/{name}/judge](#postapiskillsnamejudge) | Revise now |
 
 ## Reference Table
@@ -47,6 +50,7 @@ A refusal answers `{ "error": "…" }` in words a person can act on, with its st
 | SkillSummary | [#/components/schemas/SkillSummary](#componentsschemasskillsummary) |  |
 | Error | [#/components/schemas/Error](#componentsschemaserror) |  |
 | SkillDetail | [#/components/schemas/SkillDetail](#componentsschemasskilldetail) |  |
+| PendingRevision | [#/components/schemas/PendingRevision](#componentsschemaspendingrevision) | A revision held for an admin's approval, if one is; agents are never served it. |
 | SkillFile | [#/components/schemas/SkillFile](#componentsschemasskillfile) |  |
 | Version | [#/components/schemas/Version](#componentsschemasversion) |  |
 | Feedback | [#/components/schemas/Feedback](#componentsschemasfeedback) |  |
@@ -59,6 +63,9 @@ A refusal answers `{ "error": "…" }` in words a person can act on, with its st
 | Skill | [#/components/schemas/Skill](#componentsschemasskill) |  |
 | Limit | [#/components/schemas/Limit](#componentsschemaslimit) |  |
 | Delete | [#/components/schemas/Delete](#componentsschemasdelete) |  |
+| Protect | [#/components/schemas/Protect](#componentsschemasprotect) |  |
+| Approve | [#/components/schemas/Approve](#componentsschemasapprove) |  |
+| Decline | [#/components/schemas/Decline](#componentsschemasdecline) |  |
 | Revising | [#/components/schemas/Revising](#componentsschemasrevising) |  |
 
 ## Path Details
@@ -174,6 +181,10 @@ name: string //pattern: ^(?:[a-z0-9]+(?:-[a-z0-9]+)*\/)?[a-z0-9]+(?:-[a-z0-9]+)*
   createdAt: string
   // The most text it may hold, set by an admin; null for the library's default.
   maxChars: integer | null
+  // Set by an admin: a revision the honer makes from feedback waits for an admin's approval before it is kept, and agents read the current version meanwhile.
+  protected: boolean
+  // A revision held for an admin's approval, if one is; agents are never served it.
+  pending: object | null
   files: {
     path: string
     content: string
@@ -443,7 +454,8 @@ The version to revert to.
   by: enum[judge, person, starter]
   // For a person's change, whose token made it.
   actor: string | null
-  state: enum[running, done, failed]
+  // `pending`: a revision of a protected skill, made and held until an admin approves or declines it.
+  state: enum[running, pending, done, failed]
   // ISO 8601, UTC.
   startedAt: string
   // ISO 8601, UTC.
@@ -456,6 +468,8 @@ The version to revert to.
   error: string | null
   // The version it made, if it made one; null for a deletion.
   version: integer | null
+  // For a held revision of a protected skill, the admin's decision on it; null until then, and for every other judgment.
+  review: object | null
 }
 ```
 
@@ -572,7 +586,8 @@ The file to write, or the one to remove.
   by: enum[judge, person, starter]
   // For a person's change, whose token made it.
   actor: string | null
-  state: enum[running, done, failed]
+  // `pending`: a revision of a protected skill, made and held until an admin approves or declines it.
+  state: enum[running, pending, done, failed]
   // ISO 8601, UTC.
   startedAt: string
   // ISO 8601, UTC.
@@ -585,6 +600,8 @@ The file to write, or the one to remove.
   error: string | null
   // The version it made, if it made one; null for a deletion.
   version: integer | null
+  // For a held revision of a protected skill, the admin's decision on it; null until then, and for every other judgment.
+  review: object | null
 }
 ```
 
@@ -817,6 +834,8 @@ The limit to set.
   createdAt: string
   // The most text it may hold, set by an admin; null for the library's default.
   maxChars: integer | null
+  // Set by an admin: a revision the honer makes from feedback waits for an admin's approval before it is kept, and agents read the current version meanwhile.
+  protected: boolean
 }
 ```
 
@@ -927,7 +946,8 @@ Why.
   by: enum[judge, person, starter]
   // For a person's change, whose token made it.
   actor: string | null
-  state: enum[running, done, failed]
+  // `pending`: a revision of a protected skill, made and held until an admin approves or declines it.
+  state: enum[running, pending, done, failed]
   // ISO 8601, UTC.
   startedAt: string
   // ISO 8601, UTC.
@@ -940,6 +960,8 @@ Why.
   error: string | null
   // The version it made, if it made one; null for a deletion.
   version: integer | null
+  // For a held revision of a protected skill, the admin's decision on it; null until then, and for every other judgment.
+  review: object | null
 }
 ```
 
@@ -988,6 +1010,381 @@ Why.
 ```
 
 - 409 The skill is `honed/honer`.
+
+`application/json`
+
+```typescript
+{
+  // Why, in words a person can act on.
+  error: string
+}
+```
+
+***
+
+### [POST]/api/skills/{name}/protect
+
+- Summary  
+  Protect skill
+
+- Operation id  
+  protectSkill
+
+- Description  
+  While a skill is protected, a revision the honer makes from feedback is held for an admin to approve or decline, and agents go on reading the current version; an admin's own edits and reverts apply at once. Needs an admin token.
+
+- Tags  
+  writes
+
+- Security  
+  bearerAuth  
+  cookieAuth  
+  None
+
+#### Parameters(Path)
+
+```typescript
+// The skill's name, with its group prefix if it has one: `git-commits`, `team/code-review`. Its slash may be plain or escaped as `%2F`.
+name: string //pattern: ^(?:[a-z0-9]+(?:-[a-z0-9]+)*\/)?[a-z0-9]+(?:-[a-z0-9]+)*$
+```
+
+#### Headers
+
+```typescript
+// Required on every write: a cross-site form cannot send it.
+x-honed: enum[1]
+```
+
+#### RequestBody
+
+Whether to protect it.
+
+- application/json
+
+```typescript
+{
+  // True to protect it, false to stop.
+  protected: Partial(boolean) & Partial(string)
+}
+```
+
+#### Responses
+
+- 200 The skill, with its protection now.
+
+`application/json`
+
+```typescript
+{
+  // A skill's name, with its group prefix if it has one: `git-commits`, `team/code-review`.
+  name: string
+  version: integer
+  // ISO 8601, UTC.
+  createdAt: string
+  // The most text it may hold, set by an admin; null for the library's default.
+  maxChars: integer | null
+  // Set by an admin: a revision the honer makes from feedback waits for an admin's approval before it is kept, and agents read the current version meanwhile.
+  protected: boolean
+}
+```
+
+- 400 The change cannot be made as asked: the skill would break a rule (its frontmatter, a path, the cap), or a field is missing.
+
+`application/json`
+
+```typescript
+{
+  // Why, in words a person can act on.
+  error: string
+}
+```
+
+- 401 No token, or one this server did not issue, on a shared honed.
+
+`application/json`
+
+```typescript
+{
+  // Why, in words a person can act on.
+  error: string
+}
+```
+
+- 403 No `x-honed` header, a token that is not an admin's, or a local honed asked under another host name.
+
+`application/json`
+
+```typescript
+{
+  // Why, in words a person can act on.
+  error: string
+}
+```
+
+- 404 No skill has that name.
+
+`application/json`
+
+```typescript
+{
+  // Why, in words a person can act on.
+  error: string
+}
+```
+
+***
+
+### [POST]/api/skills/{name}/approve
+
+- Summary  
+  Approve revision
+
+- Operation id  
+  approveRevision
+
+- Description  
+  Keeps the revision waiting for approval as the skill's next version, from then on what agents read. Needs an admin token.
+
+- Tags  
+  writes
+
+- Security  
+  bearerAuth  
+  cookieAuth  
+  None
+
+#### Parameters(Path)
+
+```typescript
+// The skill's name, with its group prefix if it has one: `git-commits`, `team/code-review`. Its slash may be plain or escaped as `%2F`.
+name: string //pattern: ^(?:[a-z0-9]+(?:-[a-z0-9]+)*\/)?[a-z0-9]+(?:-[a-z0-9]+)*$
+```
+
+#### Headers
+
+```typescript
+// Required on every write: a cross-site form cannot send it.
+x-honed: enum[1]
+```
+
+#### RequestBody
+
+Why.
+
+- application/json
+
+```typescript
+{
+  // Why, kept in the skill's history. Defaults to a line saying what was done.
+  reason?: string
+}
+```
+
+#### Responses
+
+- 200 The judgment that made the revision, now with the version it made and the approval.
+
+`application/json`
+
+```typescript
+{
+  id: string
+  // A skill's name, with its group prefix if it has one: `git-commits`, `team/code-review`.
+  skill: string
+  // The judge revising from feedback, a person's edit, revert or deletion, or a starter shipped with honed.
+  by: enum[judge, person, starter]
+  // For a person's change, whose token made it.
+  actor: string | null
+  // `pending`: a revision of a protected skill, made and held until an admin approves or declines it.
+  state: enum[running, pending, done, failed]
+  // ISO 8601, UTC.
+  startedAt: string
+  // ISO 8601, UTC.
+  finishedAt: string | null
+  // Whether it changed the skill; null while running.
+  changed: boolean | null
+  // Why: the judge's reasoning, or the reason the person gave.
+  reasoning: string
+  // What went wrong, for a failed judgment.
+  error: string | null
+  // The version it made, if it made one; null for a deletion.
+  version: integer | null
+  // For a held revision of a protected skill, the admin's decision on it; null until then, and for every other judgment.
+  review: object | null
+}
+```
+
+- 400 The change cannot be made as asked: the skill would break a rule (its frontmatter, a path, the cap), or a field is missing.
+
+`application/json`
+
+```typescript
+{
+  // Why, in words a person can act on.
+  error: string
+}
+```
+
+- 401 No token, or one this server did not issue, on a shared honed.
+
+`application/json`
+
+```typescript
+{
+  // Why, in words a person can act on.
+  error: string
+}
+```
+
+- 403 No `x-honed` header, a token that is not an admin's, or a local honed asked under another host name.
+
+`application/json`
+
+```typescript
+{
+  // Why, in words a person can act on.
+  error: string
+}
+```
+
+- 404 No skill has that name, or no revision of it is waiting for approval.
+
+`application/json`
+
+```typescript
+{
+  // Why, in words a person can act on.
+  error: string
+}
+```
+
+- 409 The skill changed since the revision was made from it: decline it instead.
+
+`application/json`
+
+```typescript
+{
+  // Why, in words a person can act on.
+  error: string
+}
+```
+
+***
+
+### [POST]/api/skills/{name}/decline
+
+- Summary  
+  Decline revision
+
+- Operation id  
+  declineRevision
+
+- Description  
+  Discards the revision waiting for approval: the skill stays as it is, and the decision is kept in its history. Needs an admin token.
+
+- Tags  
+  writes
+
+- Security  
+  bearerAuth  
+  cookieAuth  
+  None
+
+#### Parameters(Path)
+
+```typescript
+// The skill's name, with its group prefix if it has one: `git-commits`, `team/code-review`. Its slash may be plain or escaped as `%2F`.
+name: string //pattern: ^(?:[a-z0-9]+(?:-[a-z0-9]+)*\/)?[a-z0-9]+(?:-[a-z0-9]+)*$
+```
+
+#### Headers
+
+```typescript
+// Required on every write: a cross-site form cannot send it.
+x-honed: enum[1]
+```
+
+#### RequestBody
+
+Why.
+
+- application/json
+
+```typescript
+{
+  // Why, kept in the skill's history. Defaults to a line saying what was done.
+  reason?: string
+}
+```
+
+#### Responses
+
+- 200 The judgment that made the revision, now with the decline.
+
+`application/json`
+
+```typescript
+{
+  id: string
+  // A skill's name, with its group prefix if it has one: `git-commits`, `team/code-review`.
+  skill: string
+  // The judge revising from feedback, a person's edit, revert or deletion, or a starter shipped with honed.
+  by: enum[judge, person, starter]
+  // For a person's change, whose token made it.
+  actor: string | null
+  // `pending`: a revision of a protected skill, made and held until an admin approves or declines it.
+  state: enum[running, pending, done, failed]
+  // ISO 8601, UTC.
+  startedAt: string
+  // ISO 8601, UTC.
+  finishedAt: string | null
+  // Whether it changed the skill; null while running.
+  changed: boolean | null
+  // Why: the judge's reasoning, or the reason the person gave.
+  reasoning: string
+  // What went wrong, for a failed judgment.
+  error: string | null
+  // The version it made, if it made one; null for a deletion.
+  version: integer | null
+  // For a held revision of a protected skill, the admin's decision on it; null until then, and for every other judgment.
+  review: object | null
+}
+```
+
+- 400 The change cannot be made as asked: the skill would break a rule (its frontmatter, a path, the cap), or a field is missing.
+
+`application/json`
+
+```typescript
+{
+  // Why, in words a person can act on.
+  error: string
+}
+```
+
+- 401 No token, or one this server did not issue, on a shared honed.
+
+`application/json`
+
+```typescript
+{
+  // Why, in words a person can act on.
+  error: string
+}
+```
+
+- 403 No `x-honed` header, a token that is not an admin's, or a local honed asked under another host name.
+
+`application/json`
+
+```typescript
+{
+  // Why, in words a person can act on.
+  error: string
+}
+```
+
+- 404 No skill has that name, or no revision of it is waiting for approval.
 
 `application/json`
 
@@ -1144,6 +1541,10 @@ Set by signing in on the page.
   feedback: integer
   // Feedback no revision has considered yet.
   waiting: integer
+  // Whether a revision from feedback waits for an admin's approval before it is kept.
+  protected: boolean
+  // Whether a revision of it is waiting for an admin now.
+  pending: boolean
   // ISO 8601, UTC.
   updatedAt: string
 }
@@ -1169,6 +1570,10 @@ Set by signing in on the page.
   createdAt: string
   // The most text it may hold, set by an admin; null for the library's default.
   maxChars: integer | null
+  // Set by an admin: a revision the honer makes from feedback waits for an admin's approval before it is kept, and agents read the current version meanwhile.
+  protected: boolean
+  // A revision held for an admin's approval, if one is; agents are never served it.
+  pending: object | null
   files: {
     path: string
     content: string
@@ -1227,6 +1632,13 @@ Set by signing in on the page.
     sortedBy: string | null
   }[]
 }
+```
+
+### #/components/schemas/PendingRevision
+
+```typescript
+// A revision held for an admin's approval, if one is; agents are never served it.
+object | null
 ```
 
 ### #/components/schemas/SkillFile
@@ -1368,7 +1780,8 @@ Set by signing in on the page.
   by: enum[judge, person, starter]
   // For a person's change, whose token made it.
   actor: string | null
-  state: enum[running, done, failed]
+  // `pending`: a revision of a protected skill, made and held until an admin approves or declines it.
+  state: enum[running, pending, done, failed]
   // ISO 8601, UTC.
   startedAt: string
   // ISO 8601, UTC.
@@ -1381,6 +1794,8 @@ Set by signing in on the page.
   error: string | null
   // The version it made, if it made one; null for a deletion.
   version: integer | null
+  // For a held revision of a protected skill, the admin's decision on it; null until then, and for every other judgment.
+  review: object | null
 }
 ```
 
@@ -1430,6 +1845,8 @@ Set by signing in on the page.
   createdAt: string
   // The most text it may hold, set by an admin; null for the library's default.
   maxChars: integer | null
+  // Set by an admin: a revision the honer makes from feedback waits for an admin's approval before it is kept, and agents read the current version meanwhile.
+  protected: boolean
 }
 ```
 
@@ -1443,6 +1860,33 @@ Set by signing in on the page.
 ```
 
 ### #/components/schemas/Delete
+
+```typescript
+{
+  // Why, kept in the skill's history. Defaults to a line saying what was done.
+  reason?: string
+}
+```
+
+### #/components/schemas/Protect
+
+```typescript
+{
+  // True to protect it, false to stop.
+  protected: Partial(boolean) & Partial(string)
+}
+```
+
+### #/components/schemas/Approve
+
+```typescript
+{
+  // Why, kept in the skill's history. Defaults to a line saying what was done.
+  reason?: string
+}
+```
+
+### #/components/schemas/Decline
 
 ```typescript
 {

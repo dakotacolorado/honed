@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "honed",
-    "version": "0.3.11",
+    "version": "0.4.0",
     "description": "honed keeps your organization's skills: the instructions coding agents read before a task, such as how a team writes commits or reviews code. When a skill turns out to be wrong, the agent that hit it reports it, and honed revises the skill from those reports, keeping every version and why it changed.\n\nThis API is how honed's web page, or a script of yours, reads the library: each skill with its files, versions and feedback, and why it changed. It is also how an admin edits, reverts or deletes a skill by hand. Agents don't use it: they use the MCP server at `/mcp` (docs at `/docs/mcp`).\n\n## Tokens\n\nA honed with no tokens, started on this machine alone, is local: it answers only requests naming `127.0.0.1`, `localhost` or `[::1]` as their host, needs no token, and treats every caller as an admin.\n\nThe first token (`honed token create <name> [--admin]`) makes it shared at once: from then on every request but this contract and the docs carries one, as `Authorization: Bearer honed_…` or as the `honed_token` cookie that signing in on the page sets. A honed started on another host (`--host 0.0.0.0`) is shared from the start.\n\n## Writes\n\nEvery write is a `POST` that carries the `x-honed: 1` header, so a cross-site form cannot make one, and takes an admin token. Each is kept as a version of the skill, recorded as a judgment by a person, with the reason given.\n\n## Errors\n\nA refusal answers `{ \"error\": \"…\" }` in words a person can act on, with its status: 400 for a request that cannot be done as asked, 401 for a missing or unknown token, 403 for a write without the header or an admin token (or a local honed asked under another host name), 404 for a skill, version or judgment that does not exist, and 409 for a change that conflicts with the skill as it is.",
     "license": {
       "name": "MIT"
@@ -85,6 +85,14 @@
             "type": "integer",
             "description": "Feedback no revision has considered yet."
           },
+          "protected": {
+            "type": "boolean",
+            "description": "Whether a revision from feedback waits for an admin's approval before it is kept."
+          },
+          "pending": {
+            "type": "boolean",
+            "description": "Whether a revision of it is waiting for an admin now."
+          },
           "updatedAt": {
             "type": "string",
             "description": "ISO 8601, UTC.",
@@ -99,6 +107,8 @@
           "limit",
           "feedback",
           "waiting",
+          "protected",
+          "pending",
           "updatedAt"
         ]
       },
@@ -137,6 +147,13 @@
             ],
             "description": "The most text it may hold, set by an admin; null for the library's default."
           },
+          "protected": {
+            "type": "boolean",
+            "description": "Set by an admin: a revision the honer makes from feedback waits for an admin's approval before it is kept, and agents read the current version meanwhile."
+          },
+          "pending": {
+            "$ref": "#/components/schemas/PendingRevision"
+          },
           "files": {
             "type": "array",
             "items": {
@@ -164,10 +181,58 @@
           "version",
           "createdAt",
           "maxChars",
+          "protected",
+          "pending",
           "files",
           "versions",
           "feedback"
         ]
+      },
+      "PendingRevision": {
+        "type": [
+          "object",
+          "null"
+        ],
+        "properties": {
+          "judgment": {
+            "type": "string",
+            "description": "The judgment that made it, with its reasoning and the feedback behind it."
+          },
+          "skill": {
+            "type": "string",
+            "description": "A skill's name, with its group prefix if it has one: `git-commits`, `team/code-review`.",
+            "example": "team/code-review"
+          },
+          "version": {
+            "type": "integer",
+            "description": "The version it was made from: it can be approved only while the skill is still that version."
+          },
+          "note": {
+            "type": "string",
+            "description": "What it changes, in a line."
+          },
+          "files": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SkillFile"
+            },
+            "description": "The skill's files as the revision would make them."
+          },
+          "at": {
+            "type": "string",
+            "description": "ISO 8601, UTC.",
+            "example": "2026-11-12T19:03:13.726Z"
+          }
+        },
+        "required": [
+          "judgment",
+          "skill",
+          "version",
+          "note",
+          "files",
+          "at"
+        ],
+        "description": "A revision held for an admin's approval, if one is; agents are never served it."
       },
       "SkillFile": {
         "type": "object",
@@ -438,9 +503,11 @@
             "type": "string",
             "enum": [
               "running",
+              "pending",
               "done",
               "failed"
-            ]
+            ],
+            "description": "`pending`: a revision of a protected skill, made and held until an admin approves or declines it."
           },
           "startedAt": {
             "type": "string",
@@ -479,6 +546,38 @@
               "null"
             ],
             "description": "The version it made, if it made one; null for a deletion."
+          },
+          "review": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "by": {
+                "type": "string",
+                "description": "The admin who decided, by their token's name."
+              },
+              "approved": {
+                "type": "boolean",
+                "description": "True if the revision was kept as a new version; false if it was discarded."
+              },
+              "reason": {
+                "type": "string",
+                "description": "Why, as the admin gave it; may be empty."
+              },
+              "at": {
+                "type": "string",
+                "description": "ISO 8601, UTC.",
+                "example": "2026-11-12T19:03:13.726Z"
+              }
+            },
+            "required": [
+              "by",
+              "approved",
+              "reason",
+              "at"
+            ],
+            "description": "For a held revision of a protected skill, the admin's decision on it; null until then, and for every other judgment."
           }
         },
         "required": [
@@ -492,7 +591,8 @@
           "changed",
           "reasoning",
           "error",
-          "version"
+          "version",
+          "review"
         ]
       },
       "Revert": {
@@ -573,13 +673,18 @@
               "null"
             ],
             "description": "The most text it may hold, set by an admin; null for the library's default."
+          },
+          "protected": {
+            "type": "boolean",
+            "description": "Set by an admin: a revision the honer makes from feedback waits for an admin's approval before it is kept, and agents read the current version meanwhile."
           }
         },
         "required": [
           "name",
           "version",
           "createdAt",
-          "maxChars"
+          "maxChars",
+          "protected"
         ]
       },
       "Limit": {
@@ -599,6 +704,47 @@
         }
       },
       "Delete": {
+        "type": "object",
+        "properties": {
+          "reason": {
+            "type": "string",
+            "description": "Why, kept in the skill's history. Defaults to a line saying what was done."
+          }
+        }
+      },
+      "Protect": {
+        "type": "object",
+        "properties": {
+          "protected": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "string",
+                "enum": [
+                  "true",
+                  "false"
+                ]
+              }
+            ],
+            "description": "True to protect it, false to stop."
+          }
+        },
+        "required": [
+          "protected"
+        ]
+      },
+      "Approve": {
+        "type": "object",
+        "properties": {
+          "reason": {
+            "type": "string",
+            "description": "Why, kept in the skill's history. Defaults to a line saying what was done."
+          }
+        }
+      },
+      "Decline": {
         "type": "object",
         "properties": {
           "reason": {
@@ -1379,6 +1525,331 @@
           },
           "409": {
             "description": "The skill is `honed/honer`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/skills/{name}/protect": {
+      "post": {
+        "operationId": "protectSkill",
+        "summary": "Protect skill",
+        "description": "While a skill is protected, a revision the honer makes from feedback is held for an admin to approve or decline, and agents go on reading the current version; an admin's own edits and reverts apply at once. Needs an admin token.",
+        "tags": [
+          "writes"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "cookieAuth": []
+          },
+          {}
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "pattern": "^(?:[a-z0-9]+(?:-[a-z0-9]+)*\\/)?[a-z0-9]+(?:-[a-z0-9]+)*$"
+            },
+            "required": true,
+            "name": "name",
+            "in": "path",
+            "description": "The skill's name, with its group prefix if it has one: `git-commits`, `team/code-review`. Its slash may be plain or escaped as `%2F`."
+          },
+          {
+            "schema": {
+              "type": "string",
+              "enum": [
+                "1"
+              ]
+            },
+            "required": true,
+            "name": "x-honed",
+            "in": "header",
+            "description": "Required on every write: a cross-site form cannot send it."
+          }
+        ],
+        "requestBody": {
+          "description": "Whether to protect it.",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Protect"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The skill, with its protection now.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Skill"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The change cannot be made as asked: the skill would break a rule (its frontmatter, a path, the cap), or a field is missing.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No token, or one this server did not issue, on a shared honed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "No `x-honed` header, a token that is not an admin's, or a local honed asked under another host name.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No skill has that name.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/skills/{name}/approve": {
+      "post": {
+        "operationId": "approveRevision",
+        "summary": "Approve revision",
+        "description": "Keeps the revision waiting for approval as the skill's next version, from then on what agents read. Needs an admin token.",
+        "tags": [
+          "writes"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "cookieAuth": []
+          },
+          {}
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "pattern": "^(?:[a-z0-9]+(?:-[a-z0-9]+)*\\/)?[a-z0-9]+(?:-[a-z0-9]+)*$"
+            },
+            "required": true,
+            "name": "name",
+            "in": "path",
+            "description": "The skill's name, with its group prefix if it has one: `git-commits`, `team/code-review`. Its slash may be plain or escaped as `%2F`."
+          },
+          {
+            "schema": {
+              "type": "string",
+              "enum": [
+                "1"
+              ]
+            },
+            "required": true,
+            "name": "x-honed",
+            "in": "header",
+            "description": "Required on every write: a cross-site form cannot send it."
+          }
+        ],
+        "requestBody": {
+          "description": "Why.",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Approve"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The judgment that made the revision, now with the version it made and the approval.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Judgment"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The change cannot be made as asked: the skill would break a rule (its frontmatter, a path, the cap), or a field is missing.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No token, or one this server did not issue, on a shared honed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "No `x-honed` header, a token that is not an admin's, or a local honed asked under another host name.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No skill has that name, or no revision of it is waiting for approval.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The skill changed since the revision was made from it: decline it instead.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/skills/{name}/decline": {
+      "post": {
+        "operationId": "declineRevision",
+        "summary": "Decline revision",
+        "description": "Discards the revision waiting for approval: the skill stays as it is, and the decision is kept in its history. Needs an admin token.",
+        "tags": [
+          "writes"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "cookieAuth": []
+          },
+          {}
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "pattern": "^(?:[a-z0-9]+(?:-[a-z0-9]+)*\\/)?[a-z0-9]+(?:-[a-z0-9]+)*$"
+            },
+            "required": true,
+            "name": "name",
+            "in": "path",
+            "description": "The skill's name, with its group prefix if it has one: `git-commits`, `team/code-review`. Its slash may be plain or escaped as `%2F`."
+          },
+          {
+            "schema": {
+              "type": "string",
+              "enum": [
+                "1"
+              ]
+            },
+            "required": true,
+            "name": "x-honed",
+            "in": "header",
+            "description": "Required on every write: a cross-site form cannot send it."
+          }
+        ],
+        "requestBody": {
+          "description": "Why.",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Decline"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The judgment that made the revision, now with the decline.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Judgment"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The change cannot be made as asked: the skill would break a rule (its frontmatter, a path, the cap), or a field is missing.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No token, or one this server did not issue, on a shared honed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "No `x-honed` header, a token that is not an admin's, or a local honed asked under another host name.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No skill has that name, or no revision of it is waiting for approval.",
             "content": {
               "application/json": {
                 "schema": {

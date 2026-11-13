@@ -6,7 +6,7 @@ import { deleteCookie, getCookie, setCookie } from "hono/cookie";
 import { html, raw } from "hono/html";
 import { getPath } from "hono/utils/url";
 import type { HtmlEscapedString } from "hono/utils/html";
-import { COOKIE, deleteRoute, describeApi, editRoute, getJudgmentRoute, getSkillRoute, honoPath, judgeRoute, limitRoute, listSkillsRoute, previewRoute, revertRoute, WRITE_HEADER } from "./api.ts";
+import { approveRoute, COOKIE, declineRoute, deleteRoute, describeApi, editRoute, getJudgmentRoute, getSkillRoute, honoPath, judgeRoute, limitRoute, listSkillsRoute, previewRoute, protectRoute, revertRoute, WRITE_HEADER } from "./api.ts";
 import { callerOf } from "./auth.ts";
 import { DEFAULT_URL, LETTERS_ONLY, SUMMARY, SWORD_PIXELS, TAGLINE } from "./banner.ts";
 import { baseName, HONER_SKILL, reportName, NAMESPACES_HEADER, parseNamespaces, Scope, LOCAL_CALLER, NAME_ROUTE, prefixOf, Refusal, SKILL_FILE, type Caller, type Feedback, type Judgment } from "./domain.ts";
@@ -290,6 +290,9 @@ const personName = (j: Judgment) => (j.actor && j.actor !== "you" ? j.actor : "Y
 function outcome(j: Judgment): Html {
   if (j.state === "running") return pill("honing", "running");
   if (j.state === "failed") return pill("failed", "failed");
+  if (j.state === "pending") return pill("waits for approval", "waiting");
+  if (j.review && !j.review.approved) return pill(`declined by ${j.review.by}`);
+  if (j.review) return pill(`approved → v${j.version}`, "changed");
   if (j.by === "person") return j.version ? pill(`changed by hand → v${j.version}`, "changed") : pill("deleted", "failed");
   if (j.by === "starter") return pill("shipped with honed");
   return j.changed ? pill(`honed → v${j.version}`, "changed") : pill("unchanged");
@@ -328,7 +331,7 @@ function skillCard(s: SkillSummary, match?: string): Html {
     <div class="name">${baseName(s.name)}</div>
     <div class="desc">${s.description}</div>
     ${match && addsToDescription(match, s.description) ? snippet(match) : ""}
-    <div class="meta"><span>v${s.version}</span>${s.waiting ? pill(`${s.waiting} waiting`, "waiting") : ""}${capWarning(s.chars, s.limit)}<span>${ago(s.updatedAt)}</span></div>
+    <div class="meta"><span>v${s.version}</span>${s.protected ? pill("protected") : ""}${s.pending ? pill("revision waits for approval", "waiting") : ""}${s.waiting ? pill(`${s.waiting} waiting`, "waiting") : ""}${capWarning(s.chars, s.limit)}<span>${ago(s.updatedAt)}</span></div>
   </a>`;
 }
 
@@ -423,6 +426,26 @@ async function skillPage(hub: Hub, name: string, viewer: Viewer, version: string
   const tab: Tab = view.tab === "feedback" || view.tab === "history" || view.tab === "skill" ? view.tab : name === HONER_SKILL && admin && summary.waiting ? "feedback" : "skill";
   const tabLink = (t: Tab, label: Html) => html`<a href="/skills/${name}${t === "skill" ? "" : `?tab=${t}`}" ${tab === t ? html`aria-current="page"` : ""}>${label}</a>`;
   const prefix = prefixOf(name);
+  const held = hub.pending(name);
+
+  /** A held revision, with its reasoning and diff, and for an admin the buttons that decide it. */
+  const heldCard = async () => {
+    if (!held) return html``;
+    const j = hub.judgment(held.judgment);
+    const base = await hub.files(name, held.version);
+    const behind = held.version !== skill.version;
+    return html`<section class="card" id="pending">
+      <div class="bar-row"><b>A revision waits for approval</b> ${pill(`from v${held.version}`, "waiting")}</div>
+      <p class="small muted">${held.note} · made ${ago(held.at)} · <a href="/judgments/${j.id}">the feedback behind it</a>. Agents read v${skill.version} until an admin approves it.</p>
+      ${behind ? html`<p class="small refusal">${name} changed since this revision was made from v${held.version}: it can only be declined.</p>` : ""}
+      ${j.reasoning ? html`<div class="prose small">${j.reasoning}</div>` : ""}
+      ${diffView(await hub.library.compare(base, held.files))}
+      ${admin
+        ? html`${behind ? "" : action(`/api/skills/${name}/approve`, "Approve", { reason: "Why (kept in the history)" })}
+          ${action(`/api/skills/${name}/decline`, "Decline", { reason: "Why (kept in the history)", danger: true })}`
+        : ""}
+    </section>`;
+  };
 
   const skillTab = async () => html`
     ${files.map((f) => {
@@ -452,37 +475,65 @@ async function skillPage(hub: Hub, name: string, viewer: Viewer, version: string
 
   const feedbackTab = () => html`
     ${summary.waiting
-      ? html`<div class="bar-row card"><span>${pill(`${summary.waiting} waiting`, "waiting")} <span class="small muted">${name === HONER_SKILL ? "revised only when an admin asks" : "a report whose evidence shows the text wrong is acted on at once; a judgment call waits for agreement, or for Revise now"}</span></span>
+      ? html`<div class="bar-row card"><span>${pill(`${summary.waiting} waiting`, "waiting")} <span class="small muted">${name === HONER_SKILL ? "revised only when an admin asks" : skill.protected ? "a report whose evidence shows the text wrong is revised at once, a judgment call once agreed or on Revise now, and a revision is kept once an admin approves" : "a report whose evidence shows the text wrong is acted on at once; a judgment call waits for agreement, or for Revise now"}</span></span>
           ${admin && !judging ? action(`/api/skills/${name}/judge`, "Revise now") : judging ? pill("honing", "running") : ""}</div>`
       : ""}
+    ${held ? html`<p class="small muted">Feedback waits while a revision is <a href="#pending">waiting for approval</a>.</p>` : ""}
     ${feedback.length ? feedback.map(feedbackCard) : html`<div class="empty">No feedback yet. It arrives as agents use the skill.</div>`}`;
 
   const historyTab = async () => {
-    const diffs = await Promise.all(versions.map((v) => hub.library.diff(name, v.commit)));
-    return html`<div class="timeline">
-      ${versions.map((v, i) => {
+    const reviewer = (by: string) => (by === "you" ? "You" : by);
+    const versionEvents = await Promise.all(
+      versions.map(async (v) => {
         const j = hub.store.judgment(v.judgment);
         const kind = j?.by === "person" ? "person" : j?.by === "starter" ? "starter" : "";
         const reverted = v.note.startsWith("Revert");
-        const how = j?.by === "person" ? `${personName(j)} ${reverted ? "reverted" : "edited"} it` : j?.by === "starter" ? "shipped with honed" : reverted ? "reverted by the honer" : "honed";
+        const how =
+          j?.by === "person" ? `${personName(j)} ${reverted ? "reverted" : "edited"} it` :
+          j?.by === "starter" ? "shipped with honed" :
+          `${reverted ? "reverted by the honer" : "honed"}${j?.review ? `, approved by ${reviewer(j.review.by)}` : ""}`;
         const reports = hub.store.feedbackOf(v.judgment);
-        return html`<div class="event ${kind}">
-          <div><b class="mono">v${v.version}</b> ${v.note} <span class="muted small">· ${how} ${ago(v.at)} · <a href="/judgments/${v.judgment}">why</a></span></div>
-          ${reports.length ? html`<div class="by">from ${reports.map((f, k) => html`${k ? ", " : ""}${reportName(f)}${f.quote !== null ? html` on “${f.quote.length > 80 ? `${f.quote.slice(0, 80)}…` : f.quote}”` : ""}`)}</div>` : ""}
-          <details><summary class="small muted">what changed</summary>${diffView(diffs[i] ?? "", name)}</details>
-          ${admin && v.version < skill.version
-            ? html`<details><summary class="small muted">revert to v${v.version}</summary>${action(`/api/skills/${name}/revert`, `Revert to v${v.version}`, { reason: "Why? (kept in the history)", extra: html`<input type="hidden" name="version" value="${v.version}" />` })}</details>`
-            : ""}
-        </div>`;
-      })}
-    </div>`;
+        return {
+          at: v.at,
+          html: html`<div class="event ${kind}">
+            <div><b class="mono">v${v.version}</b> ${v.note} <span class="muted small">· ${how} ${ago(v.at)} · <a href="/judgments/${v.judgment}">why</a></span></div>
+            ${reports.length ? html`<div class="by">from ${reports.map((f, k) => html`${k ? ", " : ""}${reportName(f)}${f.quote !== null ? html` on “${f.quote.length > 80 ? `${f.quote.slice(0, 80)}…` : f.quote}”` : ""}`)}</div>` : ""}
+            <details><summary class="small muted">what changed</summary>${diffView(await hub.library.diff(name, v.commit), name)}</details>
+            ${admin && v.version < skill.version
+              ? html`<details><summary class="small muted">revert to v${v.version}</summary>${action(`/api/skills/${name}/revert`, `Revert to v${v.version}`, { reason: "Why? (kept in the history)", extra: html`<input type="hidden" name="version" value="${v.version}" />` })}</details>`
+              : ""}
+          </div>`,
+        };
+      }),
+    );
+    // A declined revision made no version, so it is shown among them at the time it was declined.
+    const declinedEvents = await Promise.all(
+      hub.store
+        .judgments(name, 200)
+        .filter((j) => j.review && !j.review.approved)
+        .map(async (j) => {
+          const review = j.review!;
+          const revision = hub.store.pendingOf(j.id);
+          const reports = hub.store.feedbackOf(j.id);
+          return {
+            at: review.at,
+            html: html`<div class="event person">
+              <div><b class="mono">declined</b> ${revision?.note ?? "a revision"} <span class="muted small">· ${reviewer(review.by)} declined it ${ago(review.at)}${review.reason ? `: ${review.reason}` : ""} · <a href="/judgments/${j.id}">why</a></span></div>
+              ${reports.length ? html`<div class="by">from ${reports.map((f, k) => html`${k ? ", " : ""}${reportName(f)}`)}</div>` : ""}
+              ${revision ? html`<details><summary class="small muted">what it would have changed</summary>${diffView(await hub.library.compare(await hub.files(name, revision.version).catch(() => []), revision.files))}</details>` : ""}
+            </div>`,
+          };
+        }),
+    );
+    const events = [...versionEvents, ...declinedEvents].sort((a, b) => b.at.localeCompare(a.at));
+    return html`<div class="timeline">${events.map((e) => e.html)}</div>`;
   };
 
   return page(
     `${name} · honed`,
     html`<a class="back" href="/">← all skills</a>
       ${prefix ? html`<div class="tag" style="margin-top:14px">${prefix}/</div>` : ""}
-      <h1 style="${prefix ? "" : "margin-top:14px"}">${baseName(name)} ${pill(`v${skill.version}`)} ${judging ? pill("honing", "running") : ""} ${capWarning(summary.chars, summary.limit)}</h1>
+      <h1 style="${prefix ? "" : "margin-top:14px"}">${baseName(name)} ${pill(`v${skill.version}`)} ${skill.protected ? pill("protected") : ""} ${judging ? pill("honing", "running") : ""} ${capWarning(summary.chars, summary.limit)}</h1>
       <p>${summary.description}</p>
       <div class="meta"><span>updated ${ago(summary.updatedAt)}</span><span title="${skill.maxChars === null ? "the library's default limit" : "this skill's own limit"}">${summary.chars} of ${summary.limit} characters</span></div>
       ${admin && !editing && !adding
@@ -490,9 +541,20 @@ async function skillPage(hub: Hub, name: string, viewer: Viewer, version: string
             <p class="small muted">The most text this skill may hold, all its files together, for the honer's revisions and people's edits alike. Leave it empty for the library's default (${hub.maxChars}). Text already over a lowered limit may only shrink.</p>
             ${action(`/api/skills/${name}/limit`, "Set limit", { extra: html`<input type="number" name="maxChars" min="1" value="${skill.maxChars ?? ""}" placeholder="${hub.maxChars}" aria-label="Limit in characters" />` })}</details>`
         : ""}
+      ${admin && !editing && !adding && name !== HONER_SKILL
+        ? html`<details><summary class="small muted">${skill.protected ? "stop protecting it" : "protect it"}</summary>
+            <p class="small muted">${skill.protected
+              ? "Revisions from feedback are then kept at once, as for any skill."
+              : "A revision the honer makes from feedback is then held here for an admin to approve or decline, and agents go on reading the current version. Your own edits and reverts still apply at once."}</p>
+            ${action(`/api/skills/${name}/protect`, skill.protected ? "Unprotect" : "Protect", { extra: html`<input type="hidden" name="protected" value="${skill.protected ? "false" : "true"}" />` })}</details>`
+        : ""}
+      ${skill.protected && name !== HONER_SKILL
+        ? html`<div class="note">Protected: a revision from feedback is kept only once an admin approves it, and agents read the current version until then. An admin's own edits apply at once.</div>`
+        : ""}
       ${name === HONER_SKILL
         ? html`<div class="note">This is the honer's own guidance: how honed revises every skill. Agents and the honer itself leave feedback on it as they work; it changes only when an admin chooses <b>Revise now</b>, and the honer never reviews its own review. Its safety rules and the cap live in honed itself and can't be edited away.</div>`
         : ""}
+      ${editing || adding ? "" : await heldCard()}
       <nav class="tabs" aria-label="Skill sections">
         ${tabLink("skill", html`skill`)}
         ${tabLink("feedback", html`feedback ${summary.waiting ? pill(String(summary.waiting), "waiting") : html`<span class="muted">${feedback.length}</span>`}`)}
@@ -509,9 +571,14 @@ async function judgmentPage(hub: Hub, id: string, viewer: Viewer, version: strin
   const held = hub.store.heldBy(id);
   const made = j.version ? hub.store.version(j.skill, j.version) : undefined;
   const exists = hub.store.skill(j.skill) !== undefined;
+  const revision = !made ? hub.store.pendingOf(id) : undefined;
+  const unkept = revision ? diffView(await hub.library.compare(await hub.files(j.skill, revision.version).catch(() => []), revision.files)) : "";
   const heading =
     j.state === "running" ? `Honing ${j.skill}…` :
     j.state === "failed" ? `${j.skill} could not be revised` :
+    j.state === "pending" ? `A revision of ${j.skill} waits for approval` :
+    j.review && !j.review.approved ? `${j.review.by === "you" ? "You" : j.review.by} declined a revision of ${j.skill}` :
+    j.review ? `${j.review.by === "you" ? "You" : j.review.by} approved a revision of ${j.skill} → v${j.version}` :
     j.by === "person" && !j.version ? `${personName(j)} deleted ${j.skill}` :
     j.by === "person" ? `${personName(j)} changed ${j.skill} → v${j.version}` :
     j.by === "starter" ? `${j.skill} shipped with honed` :
@@ -523,7 +590,9 @@ async function judgmentPage(hub: Hub, id: string, viewer: Viewer, version: strin
       <p class="muted small">${ago(j.startedAt)}</p>
       ${j.reasoning ? html`<h2>why</h2><div class="card prose">${j.reasoning}</div>` : ""}
       ${j.error ? html`<h2>what went wrong</h2><pre>${j.error}</pre><p class="small muted">The feedback is still waiting, and is revised again when more arrives.</p>` : ""}
+      ${j.review?.reason ? html`<h2>${j.review.approved ? "approved" : "declined"}, because</h2><div class="card prose">${j.review.reason}</div>` : ""}
       ${made ? html`<h2>what changed</h2>${diffView(await hub.library.diff(j.skill, made.commit), j.skill)}` : ""}
+      ${revision ? html`<h2>${j.state === "pending" ? "what it would change" : "what it would have changed"}</h2>${unkept}${j.state === "pending" && exists ? html`<p class="small"><a href="/skills/${j.skill}#pending">approve or decline it on ${j.skill}'s page</a></p>` : ""}` : ""}
       ${feedback.length ? html`<h2>the feedback behind it</h2>${feedback.map(feedbackCard)}` : ""}
       ${held.length ? html`<h2>held for agreement</h2><p class="small muted">Sorted as judgment calls, so they changed nothing: each waits for separate sessions or an admin to agree.</p>${held.map(feedbackCard)}` : ""}`,
     { refresh: j.state === "running", viewer, version },
@@ -629,7 +698,7 @@ export function app(hub: Hub, version: string, opts: AppOptions = {}): OpenAPIHo
   });
   declare(getSkillRoute, async (c) => {
     const name = c.req.param("name")!;
-    return c.json({ ...hub.skill(name), files: await hub.current(name), versions: hub.store.versions(name), feedback: hub.store.feedback(name) });
+    return c.json({ ...hub.skill(name), pending: hub.pending(name) ?? null, files: await hub.current(name), versions: hub.store.versions(name), feedback: hub.store.feedback(name) });
   });
   declare(getJudgmentRoute, (c) => c.json({ ...hub.judgment(c.req.param("id")!), feedback: hub.store.feedbackOf(c.req.param("id")!) }));
 
@@ -665,6 +734,14 @@ export function app(hub: Hub, version: string, opts: AppOptions = {}): OpenAPIHo
     return c.json(hub.setLimit(c.req.param("name")!, raw === "" ? null : Number(raw)));
   });
   declare(deleteRoute, async (c) => c.json(await hub.delete(c.req.param("name")!, field(await body(c), "reason"), c.get("viewer").caller.name)));
+  declare(protectRoute, async (c) => {
+    const b = await body(c);
+    const value = b.protected === true || b.protected === "true" ? true : b.protected === false || b.protected === "false" ? false : null;
+    if (value === null) throw new Refusal("protected must be true or false");
+    return c.json(hub.setProtected(c.req.param("name")!, value));
+  });
+  declare(approveRoute, async (c) => c.json(await hub.approve(c.req.param("name")!, field(await body(c), "reason"), c.get("viewer").caller.name)));
+  declare(declineRoute, async (c) => c.json(await hub.decline(c.req.param("name")!, field(await body(c), "reason"), c.get("viewer").caller.name)));
   declare(judgeRoute, (c) => (hub.judgeNow(c.req.param("name")!), c.json({ revising: true })));
 
   web.get("/", (c) => c.html(home(hub, new URL(c.req.url).origin, c.get("viewer"), c.req.query("q") ?? "", c.req.query("group") ?? "", version)));

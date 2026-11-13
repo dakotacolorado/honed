@@ -336,6 +336,54 @@ describe("a server with tokens", () => {
     assert.equal((await fetch(`${s.base}/api/skills/team%2Frunbook`)).status, 401);
   });
 
+  test("an admin protects a skill on its page, and a revision from feedback waits there, unseen by agents, until approved or declined", async () => {
+    const client = await connect(s.base, agent);
+    const md = (body: string) => `---\nname: guard\ndescription: Guarding.\n---\n\n${body}\n`;
+    await call(client, "submit_feedback", { name: "team/guard", feedback: "make it", files: [{ path: "SKILL.md", content: md("Stand here.") }] });
+    await s.hub.idle();
+    const asAdmin = { authorization: `Bearer ${admin}` };
+    const post = (path: string, body: unknown, token = admin) => fetch(`${s.base}/api/skills/team/guard/${path}`, { method: "POST", headers: { ...WRITE, authorization: `Bearer ${token}` }, body: JSON.stringify(body) });
+
+    assert.match(await (await fetch(`${s.base}/skills/team/guard`, { headers: asAdmin })).text(), /action="\/api\/skills\/team\/guard\/protect"[\s\S]*name="protected" value="true"/);
+    assert.equal((await post("protect", { protected: "true" }, agent)).status, 403);
+    const protectedRes = await post("protect", { protected: "true" });
+    assert.equal(protectedRes.status, 200);
+    assert.equal(((await protectedRes.json()) as { protected: boolean }).protected, true);
+
+    const report = async (quote: string, body: string) => {
+      const res = await call(client, "submit_feedback", { name: "team/guard", quote, evidence: [{ command: "guard --where", output: "over there" }], what_changed: "Stood there.", files: [{ path: "SKILL.md", content: md(body) }] });
+      await s.hub.idle();
+      return res;
+    };
+    assert.match((await report("Stand here.", "Stand there.")).value, /protected/);
+    assert.match((await call(client, "get_skill", { name: "team/guard" })).value["SKILL.md"], /Stand here\./);
+    const detail = (await (await fetch(`${s.base}/api/skills/team%2Fguard`, { headers: asAdmin })).json()) as { version: number; protected: boolean; pending: { version: number; files: { content: string }[] } | null };
+    assert.deepEqual([detail.version, detail.protected, detail.pending?.version], [1, true, 1]);
+    assert.match(detail.pending!.files[0]!.content, /Stand there\./);
+    const page = await (await fetch(`${s.base}/skills/team/guard`, { headers: asAdmin })).text();
+    assert.match(page, /A revision waits for approval/);
+    assert.match(page, /Supported by the report\./);
+    assert.match(page, /class="d-add">Stand there\./);
+    assert.match(page, /action="\/api\/skills\/team\/guard\/approve"/);
+    assert.doesNotMatch(await (await fetch(`${s.base}/skills/team/guard`, { headers: { authorization: `Bearer ${agent}` } })).text(), /guard\/approve/);
+
+    assert.equal((await post("approve", {}, agent)).status, 403);
+    const approved = await post("approve", { reason: "Right." });
+    assert.equal(approved.status, 200);
+    assert.equal(((await approved.json()) as { version: number }).version, 2);
+    assert.match((await call(client, "get_skill", { name: "team/guard" })).value["SKILL.md"], /Stand there\./);
+    assert.equal((await post("approve", {})).status, 404);
+
+    await report("Stand there.", "Stand anywhere.");
+    const declined = await post("decline", { reason: "Too loose." });
+    assert.equal(declined.status, 200);
+    assert.match((await call(client, "get_skill", { name: "team/guard" })).value["SKILL.md"], /Stand there\./);
+    const history = await (await fetch(`${s.base}/skills/team/guard?tab=history`, { headers: asAdmin })).text();
+    assert.match(history, /<b class="mono">declined<\/b>[\s\S]*dakota declined it[\s\S]*Too loose\./);
+    assert.match(history, /honed, approved by dakota/);
+    await client.close();
+  });
+
   test("answers any hostname once it has tokens, since every request must carry one", async () => {
     assert.equal(await statusWithHost(s.base, "honed.example.com"), 401);
   });
