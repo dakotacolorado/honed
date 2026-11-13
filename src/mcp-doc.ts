@@ -78,6 +78,13 @@ function inputs(schema: JsonSchema, prefix = ""): { name: string; type: string; 
 /** What a repo's `.mcp.json` says to reach honed; served, the address is the deployment's own. */
 const config = mcpJson(DEFAULT_URL, ["your-project", "shared"]);
 
+/** What honed is for and who uses this server, ahead of how to connect. */
+const PURPOSE = [
+  "honed keeps your organization's skills: the instructions coding agents read before a task, such as how a team writes",
+  "commits or reviews code. Agents use honed through this MCP server: they search for the skills that fit their task, read",
+  "them, and report where one was wrong, and honed revises the skill from those reports.",
+];
+
 const CONNECT = [
   "Streamable HTTP at `/mcp`, stateless, answering JSON. A honed with no tokens, started on this machine alone, needs none and",
   "answers only `127.0.0.1`, `localhost` or `[::1]`; once it has tokens, every request carries one as",
@@ -93,6 +100,10 @@ export function renderMcp(doc: McpDocument): string {
     "# honed's MCP server",
     "",
     "<!-- Generated from src/mcp.ts by `npm run spec`; do not edit. -->",
+    "",
+    ...PURPOSE,
+    "",
+    "## Connecting",
     "",
     ...CONNECT,
     "",
@@ -157,6 +168,8 @@ blockquote{white-space:pre-wrap;margin:0}table{border-collapse:collapse;width:10
 @media (prefers-color-scheme: dark){body{color:#e3eaee;background:#0f1417}a{color:#4fd1c5}pre,blockquote{background:#0b1013}td,th,section{border-color:#253038}.ro{border-color:#4fd1c5;color:#4fd1c5}}
 </style></head><body>
 <h1>honed's MCP server</h1>
+<p>${inline(PURPOSE.join(" "))}</p>
+<h2>Connecting</h2>
 <p>${inline(CONNECT.join(" "))}</p>
 <p>Claude Code connects with the honed plugin (<code>claude plugin install honed@honed</code>), which also asks each session for feedback. A repo binds its sessions to its namespaces by committing a <code>.mcp.json</code> at its root, with each person's token in <code>HONED_TOKEN</code> in their environment (on a honed with no tokens, leave out <code>Authorization</code>):</p>
 <pre>${esc(config)}</pre>

@@ -2,8 +2,8 @@
   "openapi": "3.1.0",
   "info": {
     "title": "honed",
-    "version": "0.3.9",
-    "description": "honed's JSON API: the skills in the library, the feedback on them, and the judgments that changed them, read by the page and by anything else that wants them. Agents use the MCP server at `/mcp` instead (its docs are at `/docs/mcp`).\n\n## Tokens\n\nA honed with no tokens, started on this machine alone, is local: it answers only requests naming `127.0.0.1`, `localhost` or `[::1]` as their host, needs no token, and treats every caller as an admin.\n\nThe first token (`honed token create <name> [--admin]`) makes it shared at once: from then on every request but this contract and the docs carries one, as `Authorization: Bearer honed_…` or as the `honed_token` cookie that signing in on the page sets. A honed started on another host (`--host 0.0.0.0`) is shared from the start.\n\n## Writes\n\nEvery write is a `POST` that carries the `x-honed: 1` header, so a cross-site form cannot make one, and takes an admin token. Each is kept as a version of the skill, recorded as a judgment by a person, with the reason given.\n\n## Errors\n\nA refusal answers `{ \"error\": \"…\" }` in words a person can act on, with its status: 400 for a request that cannot be done as asked, 401 for a missing or unknown token, 403 for a write without the header or an admin token (or a local honed asked under another host name), 404 for a skill, version or judgment that does not exist, and 409 for a change that conflicts with the skill as it is.",
+    "version": "0.3.10",
+    "description": "honed keeps your organization's skills: the instructions coding agents read before a task, such as how a team writes commits or reviews code. When a skill turns out to be wrong, the agent that hit it reports it, and honed revises the skill from those reports, keeping every version and why it changed.\n\nThis API is how honed's web page, or a script of yours, reads the library: each skill with its files, versions and feedback, and why it changed. It is also how an admin edits, reverts or deletes a skill by hand. Agents don't use it: they use the MCP server at `/mcp` (docs at `/docs/mcp`).\n\n## Tokens\n\nA honed with no tokens, started on this machine alone, is local: it answers only requests naming `127.0.0.1`, `localhost` or `[::1]` as their host, needs no token, and treats every caller as an admin.\n\nThe first token (`honed token create <name> [--admin]`) makes it shared at once: from then on every request but this contract and the docs carries one, as `Authorization: Bearer honed_…` or as the `honed_token` cookie that signing in on the page sets. A honed started on another host (`--host 0.0.0.0`) is shared from the start.\n\n## Writes\n\nEvery write is a `POST` that carries the `x-honed: 1` header, so a cross-site form cannot make one, and takes an admin token. Each is kept as a version of the skill, recorded as a judgment by a person, with the reason given.\n\n## Errors\n\nA refusal answers `{ \"error\": \"…\" }` in words a person can act on, with its status: 400 for a request that cannot be done as asked, 401 for a missing or unknown token, 403 for a write without the header or an admin token (or a local honed asked under another host name), 404 for a skill, version or judgment that does not exist, and 409 for a change that conflicts with the skill as it is.",
     "license": {
       "name": "MIT"
     }
@@ -631,7 +631,7 @@
         "tags": [
           "skills"
         ],
-        "summary": "List or search skills",
+        "summary": "List skills",
         "description": "Every skill in the library, by name; with `q`, the skills whose name, description or text match any of its words, best first, each with where it matched.",
         "security": [
           {
@@ -706,7 +706,7 @@
         "tags": [
           "skills"
         ],
-        "summary": "Get a skill",
+        "summary": "Get skill",
         "description": "A skill with its files, every version, and its latest feedback.",
         "security": [
           {
@@ -779,7 +779,7 @@
         "tags": [
           "judgments"
         ],
-        "summary": "Get a judgment",
+        "summary": "Get judgment",
         "description": "One change, or decision not to change, to a skill, with the feedback it considered: why the skill is as it is.",
         "security": [
           {
@@ -848,7 +848,7 @@
     "/api/skills/{name}/revert": {
       "post": {
         "operationId": "revertSkill",
-        "summary": "Revert a skill to an earlier version",
+        "summary": "Revert skill",
         "description": "Makes a new version holding an earlier version's files. Needs an admin token.",
         "tags": [
           "writes"
@@ -953,7 +953,7 @@
     "/api/skills/{name}/edit": {
       "post": {
         "operationId": "editSkill",
-        "summary": "Write or remove one of a skill's files",
+        "summary": "Edit file",
         "description": "Writes one file whole, or removes one, as a new version, held to the same rules as any skill. Needs an admin token.",
         "tags": [
           "writes"
@@ -1068,7 +1068,7 @@
     "/api/skills/{name}/preview": {
       "post": {
         "operationId": "previewEdit",
-        "summary": "Preview an edit as a diff",
+        "summary": "Preview edit",
         "description": "What the same request to `edit` would change, refused as it would be. Changes nothing. Needs an admin token, since the page shows it before saving.",
         "tags": [
           "writes"
@@ -1173,7 +1173,7 @@
     "/api/skills/{name}/limit": {
       "post": {
         "operationId": "setSkillLimit",
-        "summary": "Set a skill's size limit",
+        "summary": "Set size limit",
         "description": "The most text the skill may hold, all its files together, for the judge's revisions and people's edits alike; it applies to every change from now on, and text already over it may only shrink. Needs an admin token.",
         "tags": [
           "writes"
@@ -1278,7 +1278,7 @@
     "/api/skills/{name}/delete": {
       "post": {
         "operationId": "deleteSkill",
-        "summary": "Delete a skill",
+        "summary": "Delete skill",
         "description": "Takes a skill out of the library and search; its history stays in git, and feedback under its name can bring it back. Feedback waiting on it is closed by the deletion. `honed/honer` cannot be deleted. Needs an admin token.",
         "tags": [
           "writes"
@@ -1393,7 +1393,7 @@
     "/api/skills/{name}/judge": {
       "post": {
         "operationId": "reviseSkill",
-        "summary": "Revise a skill now",
+        "summary": "Revise now",
         "description": "Has the judge consider the skill now, whatever feedback is waiting, judgment reports held for agreement included, which this approves; the only way `honed/honer` is revised. Answers at once: the judgment appears in the skill's history when done. Needs an admin token.",
         "tags": [
           "writes"

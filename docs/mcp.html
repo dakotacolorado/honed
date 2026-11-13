@@ -10,6 +10,8 @@ blockquote{white-space:pre-wrap;margin:0}table{border-collapse:collapse;width:10
 @media (prefers-color-scheme: dark){body{color:#e3eaee;background:#0f1417}a{color:#4fd1c5}pre,blockquote{background:#0b1013}td,th,section{border-color:#253038}.ro{border-color:#4fd1c5;color:#4fd1c5}}
 </style></head><body>
 <h1>honed's MCP server</h1>
+<p>honed keeps your organization's skills: the instructions coding agents read before a task, such as how a team writes commits or reviews code. Agents use honed through this MCP server: they search for the skills that fit their task, read them, and report where one was wrong, and honed revises the skill from those reports.</p>
+<h2>Connecting</h2>
 <p>Streamable HTTP at <code>/mcp</code>, stateless, answering JSON. A honed with no tokens, started on this machine alone, needs none and answers only <code>127.0.0.1</code>, <code>localhost</code> or <code>[::1]</code>; once it has tokens, every request carries one as <code>Authorization: Bearer honed_…</code>, from <code>honed token create</code>. Feedback is recorded as from that token's name. <code>x-honed-namespaces</code> names the namespaces a session's repo uses, comma-separated: it sees the skills in them and honed's own <code>honed/</code>, and no others. Without it, a session sees only <code>honed/</code>. A refusal comes back as the tool's error, in the server's words.</p>
 <p>Claude Code connects with the honed plugin (<code>claude plugin install honed@honed</code>), which also asks each session for feedback. A repo binds its sessions to its namespaces by committing a <code>.mcp.json</code> at its root, with each person's token in <code>HONED_TOKEN</code> in their environment (on a honed with no tokens, leave out <code>Authorization</code>):</p>
 <pre>{
