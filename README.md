@@ -145,6 +145,15 @@ feedback, and why it changed) and how an admin edits, reverts or deletes a skill
 rendered in [`docs/API.md`](./docs/API.md); a running honed serves both at `/openapi.json` and `/docs/api`, with no
 token needed. Reads are `GET`s; every write is a `POST` with the `x-honed: 1` header and an admin token.
 
+A server can read one skill without speaking MCP: `GET /api/skills/{name}` answers its name, version and every file
+(path, content, executable), as `get_skill` does, with its versions and latest feedback. A prefixed name's slash may be
+plain or escaped (`/api/skills/team/deploys` or `/api/skills/team%2Fdeploys`). It takes any token on a shared honed
+(401 without one) and answers 404 for a name no skill has:
+
+```sh
+curl -H "Authorization: Bearer $HONED_TOKEN" https://honed.example.com/api/skills/team%2Fdeploys
+```
+
 ## Develop
 
 ```sh
