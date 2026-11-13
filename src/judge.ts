@@ -1,5 +1,5 @@
 import Anthropic from "@anthropic-ai/sdk";
-import { spawn } from "node:child_process";
+import { query as sdkQuery, type Options as SdkOptions, type SDKMessage } from "@anthropic-ai/claude-agent-sdk";
 import { readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { z } from "zod";
@@ -115,64 +115,70 @@ export const JUDGE_CONTRACT = readFileSync(new URL("./judge-contract.md", import
 
 export const systemPrompt = (guidance: string) => `${JUDGE_CONTRACT}\n\n# Your guidance (the honed/honer skill)\n\n${guidance.trim()}\n`;
 
+/** The Claude Agent SDK's `query`, or a stand-in for tests. */
+export type AgentQuery = (params: { prompt: string; options: SdkOptions }) => AsyncIterable<SDKMessage>;
+
 export interface ClaudeJudgeOptions {
-  /** The Claude Code executable. */
-  command?: string;
   model?: string;
   timeoutMs?: number;
+  /** A Claude Code executable to run instead of the one the Agent SDK ships with. */
+  executable?: string;
+  /** For tests: what to call instead of the Agent SDK. */
+  query?: AgentQuery;
 }
 
-/** Decides with one headless Claude Code session per case: no tools, no settings, no MCP servers, nothing to act with. */
+/**
+ * Decides with one headless Claude Code session per case, through the Claude Agent SDK: no tools, no settings, no MCP
+ * servers, nothing kept, nothing to act with. It signs in as Claude Code does: `CLAUDE_CODE_OAUTH_TOKEN` (made with
+ * `claude setup-token`), `ANTHROPIC_API_KEY`, or the login of Claude Code on this machine.
+ */
 export class ClaudeJudge implements Judge {
-  readonly label = "Claude Code, signed in on this machine";
-  private command: string;
+  readonly label = "Claude Code, through the Claude Agent SDK";
   private model: string | undefined;
   private timeoutMs: number;
+  private executable: string | undefined;
+  private query: AgentQuery;
 
   constructor(opts: ClaudeJudgeOptions = {}) {
-    this.command = opts.command ?? "claude";
     this.model = opts.model;
     this.timeoutMs = opts.timeoutMs ?? 10 * 60_000;
+    this.executable = opts.executable;
+    this.query = opts.query ?? sdkQuery;
   }
 
-  decide(c: Case): Promise<Decision> {
-    const args = [
-      "-p",
-      "--output-format", "json",
-      "--json-schema", JSON.stringify(decisionJsonSchema()),
-      "--system-prompt", systemPrompt(c.guidance),
-      "--tools", "",
-      "--strict-mcp-config",
-      "--setting-sources", "",
-      "--no-session-persistence",
-      ...(this.model ? ["--model", this.model] : []),
-    ];
-    return new Promise((resolve, reject) => {
-      const child = spawn(this.command, args, { cwd: tmpdir(), stdio: ["pipe", "pipe", "pipe"] });
-      let out = "";
-      let err = "";
-      const timer = setTimeout(() => {
-        child.kill("SIGTERM");
-        reject(new Error(`the judge did not decide within ${this.timeoutMs / 1000}s`));
-      }, this.timeoutMs);
-      child.stdout.on("data", (d) => (out += d));
-      child.stderr.on("data", (d) => (err += d));
-      child.on("error", (e) => {
-        clearTimeout(timer);
-        reject(new Error(`could not start ${this.command}: ${e.message}`));
-      });
-      child.on("close", (code) => {
-        clearTimeout(timer);
-        try {
-          const result = JSON.parse(out) as { is_error?: boolean; result?: string; structured_output?: unknown };
-          if (result.is_error) throw new Error(result.result ?? "the judge's session failed");
-          resolve(DecisionSchema.parse(result.structured_output));
-        } catch (e) {
-          reject(new Error(`the judge gave no decision (exit ${code}): ${e instanceof Error ? e.message : String(e)}${err ? `; ${err.trim().slice(0, 500)}` : ""}`));
-        }
-      });
-      child.stdin.end(render(c));
-    });
+  async decide(c: Case): Promise<Decision> {
+    const abort = new AbortController();
+    const timer = setTimeout(() => abort.abort(), this.timeoutMs);
+    let stderr = "";
+    const options: SdkOptions = {
+      abortController: abort,
+      cwd: tmpdir(),
+      systemPrompt: systemPrompt(c.guidance),
+      outputFormat: { type: "json_schema", schema: decisionJsonSchema() },
+      tools: [],
+      allowedTools: [],
+      mcpServers: {},
+      strictMcpConfig: true,
+      settingSources: [],
+      persistSession: false,
+      ...(this.model ? { model: this.model } : {}),
+      ...(this.executable ? { pathToClaudeCodeExecutable: this.executable } : {}),
+      stderr: (d) => (stderr = (stderr + d).slice(-2000)),
+    };
+    try {
+      let result: Extract<SDKMessage, { type: "result" }> | undefined;
+      for await (const m of this.query({ prompt: render(c), options })) if (m.type === "result") result = m;
+      if (abort.signal.aborted) throw new Error("aborted");
+      if (!result) throw new Error("the session ended without a result");
+      if (result.subtype !== "success") throw new Error(result.errors.join("; ") || result.subtype);
+      if (result.is_error) throw new Error(result.result || "the judge's session failed");
+      return DecisionSchema.parse(result.structured_output);
+    } catch (e) {
+      if (abort.signal.aborted) throw new Error(`the judge did not decide within ${this.timeoutMs / 1000}s`);
+      throw new Error(`the judge gave no decision: ${e instanceof Error ? e.message : String(e)}${stderr.trim() ? `; ${stderr.trim().slice(0, 500)}` : ""}`);
+    } finally {
+      clearTimeout(timer);
+    }
   }
 }
 
