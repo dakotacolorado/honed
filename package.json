@@ -1,6 +1,6 @@
 {
   "name": "@dakotajp/honed",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "description": "Share and hone skills across your organization: an MCP server where agents get skills and submit feedback, and each skill is revised from it.",
   "keywords": [
     "mcp",
@@ -45,6 +45,7 @@
     "prepare": "git config core.hooksPath .githooks || true"
   },
   "dependencies": {
+    "@anthropic-ai/claude-agent-sdk": "0.3.323",
     "@anthropic-ai/sdk": "^1.7.0",
     "@hono/node-server": "2.1.6",
     "@hono/zod-openapi": "1.6.3",

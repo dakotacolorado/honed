@@ -37,8 +37,11 @@ root, naming the namespaces it uses (see [namespaces](#the-model)):
 and set `HONED_TOKEN` in your environment (any value on a local honed with no tokens). Nothing else is installed: no
 plugin and no hooks. Each Claude Code session in the repo is told its skills when it starts, searches them before a
 task, and reports on one when it edited something the skill mentions or the skill gave it wrong information, quoting
-the skill's text and showing the evidence. That is all the setup. Needs Node 24+, git, and [Claude Code](https://claude.com/claude-code) signed in: skills are revised
-by Claude Code on your machine, with your login (`claude -p`, with no tools), so there is no API key to set.
+the skill's text and showing the evidence. That is all the setup. Needs Node 24+ and git, and a way for Claude to
+revise skills: [Claude Code](https://claude.com/claude-code)'s login on your machine, a `CLAUDE_CODE_OAUTH_TOKEN`, or an
+`ANTHROPIC_API_KEY`. Skills are revised by Claude Code, run headless with no tools through the
+[Claude Agent SDK](https://code.claude.com/docs/en/agent-sdk), which honed ships with: no `claude` command needs to be
+installed.
 
 ## The model
 
@@ -104,22 +107,29 @@ conventions and follow them*, with the ticket prefix as an example. Its recorded
 
 ## Host it for your team
 
-On a server, skills are revised through the Claude API with your organization's key instead of a Claude Code login.
-Needs Node 24+ and git:
+On a server, skills are revised by Claude Code through the Claude Agent SDK, signed in with a token made for it, or
+through the Claude API with your organization's key. Needs Node 24+ and git:
 
 ```sh
 npm install -g @dakotajp/honed             # installs the honed command
-export ANTHROPIC_API_KEY=sk-ant-...        # revisions are billed to this key
-honed token create dakota --admin --dir /srv/honed
-honed --host 0.0.0.0 --judge api --dir /srv/honed
+export CLAUDE_CODE_OAUTH_TOKEN=...         # from `claude setup-token`, run once anywhere you are signed in
+honed token create your-name --admin --dir /srv/honed
+honed --host 0.0.0.0 --dir /srv/honed
 ```
+
+In a container, pass the token in its environment (`docker run -e CLAUDE_CODE_OAUTH_TOKEN ...`), with
+`--host 0.0.0.0`, a `--port` (or `HONED_PORT`) and a `--dir` (or `HONED_DIR`) on a volume, so the library outlives the
+container. Nothing else is needed in the image beyond Node and git. To bill the Claude API instead, set
+`ANTHROPIC_API_KEY` and add `--judge api`.
 
 Put it behind HTTPS (any reverse proxy). Each repo's `.mcp.json` names it (`"url": "https://honed.example.com/mcp"`),
 and each person sets `HONED_TOKEN` to their own token in their environment, so no token is committed.
 
-`--judge` picks who revises: `claude-code` (a Claude Code login on this machine), `api` (the Claude API, with
-`ANTHROPIC_API_KEY`; `claude-opus-5-5` unless `--judge-model` names another), `off`, or `auto`, the default, which
-takes Claude Code when it is installed and the API when only a key is set. The banner says which one is running.
+`--judge` (or `HONED_JUDGE`) picks who revises: `claude-code` (also `agent-sdk`: Claude Code through the Claude Agent
+SDK, signed in with `CLAUDE_CODE_OAUTH_TOKEN`, `ANTHROPIC_API_KEY` or a Claude Code login on the machine), `api` (the
+Claude API, with `ANTHROPIC_API_KEY`; `claude-opus-5-5` unless `--judge-model` names another), `off`, or `auto`, the
+default, which takes Claude Code when it can sign in and the API when only a key is set. The banner says which one is
+running.
 
 People sign in to the page with their token; only an admin can edit, revert or delete a skill. With no tokens, honed
 answers only its own machine and needs none. **The first token switches honed to token-required at once, even while
@@ -133,7 +143,7 @@ it is running**: agents connected without one get 401s until they send it.
 One Node process serves the page, the API the page reads and an admin writes through ([its docs](#the-api)), and MCP at `/mcp`. Skills live in a git repo under `~/.honed`
 (every version is a commit, so the library is readable and portable without honed), with SQLite alongside for
 feedback, tokens and full-text search. When feedback calls for it, Claude revises the skill (through Claude Code
-headless on a dev machine, or the Claude API on a server), with no tools: it reads the skill, the feedback and its own
+headless, by the Claude Agent SDK, or the Claude API), with no tools: it reads the skill, the feedback and its own
 past reasoning, and answers with a new version or no change, as JSON against a fixed schema.
 The server checks every answer against the same rules as any skill, the cap included, before it keeps it.
 

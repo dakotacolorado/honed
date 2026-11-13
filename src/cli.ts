@@ -35,12 +35,14 @@ Options:
   --dir <path>        where the skills and their records are kept (default ~/.honed, or HONED_DIR)
   --max-chars <n>     the hard cap on a skill's text, all its files together (default ${DEFAULT_MAX_CHARS})
   --judge <mode>      who revises skills from feedback (default auto, or HONED_JUDGE):
-                        claude-code  Claude Code on this machine, with its login. For trying honed on a dev host.
-                        api          the Claude API, billed to ANTHROPIC_API_KEY. For a hosted server.
-                        auto         claude-code if Claude Code is installed, else api if the key is set, else off
+                        claude-code  Claude Code, run through the Claude Agent SDK (also: agent-sdk), signed in with
+                                     CLAUDE_CODE_OAUTH_TOKEN (from \`claude setup-token\`), ANTHROPIC_API_KEY, or
+                                     Claude Code's login on this machine. No claude needs to be installed.
+                        api          the Claude API, billed to ANTHROPIC_API_KEY
+                        auto         claude-code if it can sign in, else api if the key is set, else off
                         off          never; skills change only by hand
   --judge-model <m>   the model that revises skills (default: Claude Code's own, or claude-opus-5-5 on the API)
-  --claude <path>     the Claude Code executable (default: claude)
+  --claude <path>     a Claude Code executable to run instead of the one the Agent SDK ships with
   --no-judge          the same as --judge off
   -h, --help          this
 

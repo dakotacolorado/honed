@@ -5,34 +5,57 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, before, describe, test } from "node:test";
 import { ApiJudge, API_MODEL, ClaudeJudge, type Case } from "./judge.ts";
-import { chooseReviser } from "./reviser.ts";
+import { chooseReviser, claudeSignIn } from "./reviser.ts";
 
 describe("choosing who revises", () => {
   let bin: string;
+  let home: string;
   before(async () => {
     bin = await mkdtemp(join(tmpdir(), "honed-bin-"));
     await writeFile(join(bin, "claude"), "#!/bin/sh\n");
     await chmod(join(bin, "claude"), 0o755);
+    home = await mkdtemp(join(tmpdir(), "honed-home-"));
   });
-  after(async () => rm(bin, { recursive: true, force: true }));
-  const empty = "/nonexistent";
+  after(async () => {
+    await rm(bin, { recursive: true, force: true });
+    await rm(home, { recursive: true, force: true });
+  });
+  /** An environment with no Claude Code sign-in, and no claude on PATH. */
+  const bare = () => ({ HOME: home, PATH: "/nonexistent" });
 
-  test("auto takes Claude Code on a dev host, the API with a key on a server without it, else nothing", () => {
-    assert.ok(chooseReviser({ mode: "auto", path: bin, apiKey: "k" }).judge instanceof ClaudeJudge);
-    const hosted = chooseReviser({ mode: "auto", path: empty, apiKey: "k" });
+  test("auto takes Claude Code when it can sign in, the API with a key when it cannot, else nothing", () => {
+    const token = chooseReviser({ mode: "auto", env: { ...bare(), CLAUDE_CODE_OAUTH_TOKEN: "t" }, apiKey: "k" });
+    assert.ok(token.judge instanceof ClaudeJudge);
+    assert.match(token.why, /Claude Agent SDK, signed in with CLAUDE_CODE_OAUTH_TOKEN/);
+    assert.ok(chooseReviser({ mode: "auto", env: { ...bare(), PATH: bin } }).judge instanceof ClaudeJudge, "a Claude Code install's login");
+    const hosted = chooseReviser({ mode: "auto", env: bare(), apiKey: "k" });
     assert.ok(hosted.judge instanceof ApiJudge);
     assert.match(hosted.why, /the Claude API \(claude-opus-5-5\), billed to ANTHROPIC_API_KEY/);
-    const none = chooseReviser({ mode: "auto", path: empty });
+    const none = chooseReviser({ mode: "auto", env: bare() });
     assert.equal(none.judge, null);
-    assert.match(none.why, /Claude Code is not installed and ANTHROPIC_API_KEY is not set/);
+    assert.match(none.why, /no Claude Code sign-in \(CLAUDE_CODE_OAUTH_TOKEN/);
   });
 
-  test("an explicit mode is kept to, and says what it is missing", () => {
-    assert.ok(chooseReviser({ mode: "api", path: bin, apiKey: "k" }).judge instanceof ApiJudge);
-    assert.throws(() => chooseReviser({ mode: "api", path: bin }), /needs ANTHROPIC_API_KEY/);
-    assert.throws(() => chooseReviser({ mode: "claude-code", path: empty, apiKey: "k" }), /needs Claude Code/);
-    assert.equal(chooseReviser({ mode: "off", path: bin, apiKey: "k" }).judge, null);
-    assert.throws(() => chooseReviser({ mode: "cloud", path: bin }), /must be one of auto, claude-code, api, off/);
+  test("a Claude Code credentials file is a sign-in, in CLAUDE_CONFIG_DIR or ~/.claude", async () => {
+    const config = await mkdtemp(join(tmpdir(), "honed-config-"));
+    try {
+      await writeFile(join(config, ".credentials.json"), "{}");
+      assert.equal(claudeSignIn({ ...bare(), CLAUDE_CONFIG_DIR: config }), "Claude Code's login on this machine");
+      assert.equal(claudeSignIn(bare()), null);
+    } finally {
+      await rm(config, { recursive: true, force: true });
+    }
+  });
+
+  test("an explicit mode is kept to, needs no claude installed, and says what it is missing", () => {
+    assert.ok(chooseReviser({ mode: "api", env: { ...bare(), CLAUDE_CODE_OAUTH_TOKEN: "t" }, apiKey: "k" }).judge instanceof ApiJudge);
+    assert.throws(() => chooseReviser({ mode: "api", env: bare() }), /needs ANTHROPIC_API_KEY/);
+    for (const mode of ["claude-code", "agent-sdk"]) {
+      assert.ok(chooseReviser({ mode, env: bare(), apiKey: "k" }).judge instanceof ClaudeJudge, mode);
+    }
+    assert.match(chooseReviser({ mode: "claude-code", env: bare() }).why, /none was seen: set CLAUDE_CODE_OAUTH_TOKEN/);
+    assert.equal(chooseReviser({ mode: "off", env: { ...bare(), CLAUDE_CODE_OAUTH_TOKEN: "t" }, apiKey: "k" }).judge, null);
+    assert.throws(() => chooseReviser({ mode: "cloud", env: bare() }), /must be one of auto, claude-code, agent-sdk, api, off/);
   });
 });
 
