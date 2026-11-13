@@ -1,6 +1,6 @@
 # honed
 
-> Version 0.5.0
+> Version 0.5.1
 
 honed keeps your organization's skills: the instructions coding agents read before a task, such as how a team writes commits or reviews code. When a skill turns out to be wrong, the agent that hit it reports it, and honed revises the skill from those reports, keeping every version and why it changed.
 
