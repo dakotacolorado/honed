@@ -7,7 +7,7 @@ import { html, raw } from "hono/html";
 import type { HtmlEscapedString } from "hono/utils/html";
 import { COOKIE, deleteRoute, describeApi, editRoute, getJudgmentRoute, getSkillRoute, honoPath, judgeRoute, limitRoute, listSkillsRoute, previewRoute, revertRoute, WRITE_HEADER } from "./api.ts";
 import { callerOf } from "./auth.ts";
-import { LETTERS_ONLY, SUMMARY, SWORD_PIXELS, TAGLINE } from "./banner.ts";
+import { DEFAULT_URL, LETTERS_ONLY, SUMMARY, SWORD_PIXELS, TAGLINE } from "./banner.ts";
 import { baseName, HONER_SKILL, reportName, NAMESPACES_HEADER, parseNamespaces, Scope, LOCAL_CALLER, NAME_ROUTE, prefixOf, Refusal, SKILL_FILE, type Caller, type Feedback, type Judgment } from "./domain.ts";
 import { parseDiff } from "./diffview.ts";
 import { renderMarkdown, withoutFrontmatter } from "./markdown.ts";
@@ -288,7 +288,10 @@ function feedbackCard(f: Feedback): Html {
       ? html`<details><summary class="small">with a draft: ${f.draft.map((d) => d.path).join(", ")}</summary>${f.draft.map((d) => html`<div class="by">${d.path}</div><pre>${d.content}</pre>`)}</details>`
       : ""}
     <div class="by">${reportName(f)} · on ${f.version ? `v${f.version}` : "a new skill"} · ${ago(f.at)} ·
-      ${f.judgment ? html`<a href="/judgments/${f.judgment}">considered</a>` : pill("waiting", "waiting")}</div>
+      ${f.judgment ? html`<a href="/judgments/${f.judgment}">considered</a>` : f.sort === "judgment" ? pill("held for agreement", "waiting") : pill("waiting", "waiting")}</div>
+    ${f.sort
+      ? html`<div class="small muted">sorted ${f.sort === "checkable" ? "checkable: acted on at once" : "a judgment call: waits for separate sessions or an admin to agree"}${f.sortedBy ? html` by <a href="/judgments/${f.sortedBy}">the honer</a>` : ""}${f.sortWhy ? html`: ${f.sortWhy}` : ""}</div>`
+      : ""}
   </div>`;
 }
 
@@ -426,7 +429,7 @@ async function skillPage(hub: Hub, name: string, viewer: Viewer, version: string
 
   const feedbackTab = () => html`
     ${summary.waiting
-      ? html`<div class="bar-row card"><span>${pill(`${summary.waiting} waiting`, "waiting")} <span class="small muted">${name === HONER_SKILL ? "revised only when an admin asks" : "revised when enough arrives, or now"}</span></span>
+      ? html`<div class="bar-row card"><span>${pill(`${summary.waiting} waiting`, "waiting")} <span class="small muted">${name === HONER_SKILL ? "revised only when an admin asks" : "a report whose evidence shows the text wrong is acted on at once; a judgment call waits for agreement, or for Revise now"}</span></span>
           ${admin && !judging ? action(`/api/skills/${name}/judge`, "Revise now") : judging ? pill("honing", "running") : ""}</div>`
       : ""}
     ${feedback.length ? feedback.map(feedbackCard) : html`<div class="empty">No feedback yet. It arrives as agents use the skill.</div>`}`;
@@ -480,6 +483,7 @@ async function skillPage(hub: Hub, name: string, viewer: Viewer, version: string
 async function judgmentPage(hub: Hub, id: string, viewer: Viewer, version: string): Promise<HtmlEscapedString> {
   const j = hub.judgment(id);
   const feedback = hub.store.feedbackOf(id);
+  const held = hub.store.heldBy(id);
   const made = j.version ? hub.store.version(j.skill, j.version) : undefined;
   const exists = hub.store.skill(j.skill) !== undefined;
   const heading =
@@ -497,7 +501,8 @@ async function judgmentPage(hub: Hub, id: string, viewer: Viewer, version: strin
       ${j.reasoning ? html`<h2>why</h2><div class="card prose">${j.reasoning}</div>` : ""}
       ${j.error ? html`<h2>what went wrong</h2><pre>${j.error}</pre><p class="small muted">The feedback is still waiting, and is revised again when more arrives.</p>` : ""}
       ${made ? html`<h2>what changed</h2>${diffView(await hub.library.diff(j.skill, made.commit), j.skill)}` : ""}
-      ${feedback.length ? html`<h2>the feedback behind it</h2>${feedback.map(feedbackCard)}` : ""}`,
+      ${feedback.length ? html`<h2>the feedback behind it</h2>${feedback.map(feedbackCard)}` : ""}
+      ${held.length ? html`<h2>held for agreement</h2><p class="small muted">Sorted as judgment calls, so they changed nothing: each waits for separate sessions or an admin to agree.</p>${held.map(feedbackCard)}` : ""}`,
     { refresh: j.state === "running", viewer, version },
   );
 }

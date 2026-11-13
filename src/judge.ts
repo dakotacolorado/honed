@@ -20,6 +20,15 @@ export const DecisionSchema = z.object({
     .array(z.object({ path: z.string(), content: z.string(), executable: z.boolean() }))
     .describe("For a new skill, a new file, or a rewrite your reasoning justifies: each file to write, with its whole content. Empty otherwise."),
   remove: z.array(z.string()).describe("For a new version: each file to delete. Empty otherwise."),
+  sorted: z
+    .array(
+      z.object({
+        report: z.string().describe("The report's id, from <feedback id=…>."),
+        kind: z.enum(["checkable", "judgment"]).describe("checkable: its evidence shows the quoted text is wrong. judgment: anything else."),
+        why: z.string().describe("In a sentence: what in the evidence decided it."),
+      }),
+    )
+    .describe("Every report (feedback with a <quote>) sorted, each once. A judgment report is not acted on: it waits for agreement."),
   revert_to: z
     .number()
     .int()
@@ -46,6 +55,8 @@ export interface Case {
   others: { name: string; description: string }[];
   feedback: Feedback[];
   precedent: Precedent[];
+  /** An admin asked for this judgment: held judgment reports are in it, and may revise the skill. */
+  approved: boolean;
   /** Why the judge's last attempt at this same case was refused, for it to correct. */
   failure: string | null;
   /** How to judge: the body of the honed/honer skill's current version. */
@@ -70,7 +81,7 @@ export function render(c: Case): string {
   const feedback = c.feedback
     .map((f) =>
       [
-        `<feedback id="${f.id.slice(0, 8)}" by="${attr(f.author)}" on_version="${f.version}" at="${f.at}">`,
+        `<feedback id="${f.id.slice(0, 8)}" by="${attr(f.author)}" on_version="${f.version}" at="${f.at}"${f.sort ? ` sorted_before="${f.sort}"` : ""}>`,
         ...(f.quote !== null ? [`<quote>\n${f.quote}\n</quote>`] : []),
         ...f.evidence.map((e) =>
           "path" in e ? `<evidence file="${attr(e.path)}">\n${e.content}\n</evidence>` : `<evidence command="${attr(e.command)}">\n${e.output}\n</evidence>`,
@@ -92,6 +103,7 @@ export function render(c: Case): string {
     `<skill name="${c.skill}" version="${c.version}" characters="${textSize(c.files)}" cap="${c.maxChars}">\n${current}\n</skill>`,
     `<other_skills>\n${c.others.map((o) => `<skill name="${attr(o.name)}">${o.description}</skill>`).join("\n") || "none"}\n</other_skills>`,
     ...(c.writingGuide ? [`<skill_writing_guide>\n${c.writingGuide}\n</skill_writing_guide>`] : []),
+    ...(c.approved ? ["<an_admin_asked_for_this_judgment>\nAn admin asked for it, so judgment reports held for agreement are included, and any report may revise the skill. Sort them still.\n</an_admin_asked_for_this_judgment>"] : []),
     `<new_feedback>\n${feedback || "none"}\n</new_feedback>`,
     `<your_recent_judgments_on_this_skill>\n${precedent || "none"}\n</your_recent_judgments_on_this_skill>`,
     ...(c.failure ? [`<your_last_attempt_was_refused>\n${c.failure}\n</your_last_attempt_was_refused>`] : []),

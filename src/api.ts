@@ -84,6 +84,12 @@ const FeedbackSchema = z
     author: z.string().describe("Its token's name, with the role the agent gave."),
     at: Timestamp,
     judgment: z.string().nullable().describe("The judgment that considered it; null while it waits for one."),
+    sort: z
+      .enum(["checkable", "judgment"])
+      .nullable()
+      .describe("How the judge sorted it: checkable (its evidence shows the quote wrong, so acted on at once) or judgment (held for agreement); null until sorted."),
+    sortWhy: z.string().nullable().describe("The judge's reason for sorting it so."),
+    sortedBy: z.string().nullable().describe("The judgment that sorted it."),
   })
   .openapi("Feedback");
 
@@ -292,7 +298,7 @@ export const judgeRoute = createRoute({
   path: "/api/skills/{name}/judge",
   operationId: "reviseSkill",
   summary: "Revise a skill now",
-  description: `Has the judge consider the skill now, whatever feedback is waiting, rather than once enough arrives; the only way \`${HONER_SKILL}\` is revised. Answers at once: the judgment appears in the skill's history when done. Needs an admin token.`,
+  description: `Has the judge consider the skill now, whatever feedback is waiting, judgment reports held for agreement included, which this approves; the only way \`${HONER_SKILL}\` is revised. Answers at once: the judgment appears in the skill's history when done. Needs an admin token.`,
   ...write,
   responses: {
     200: json(z.object({ revising: z.literal(true) }).openapi("Revising"), "The revision has started."),

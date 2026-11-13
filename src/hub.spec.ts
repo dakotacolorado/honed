@@ -10,7 +10,7 @@ import { render, type Case, type Decision, type Judge } from "./judge.ts";
 
 const skillMd = (name: string, body = "Do the thing.") => `---\nname: ${name.split("/").pop()}\ndescription: When to use ${name}.\n---\n\n${body}\n`;
 const draft = (name: string, body?: string): DraftFile[] => [{ path: "SKILL.md", content: skillMd(name, body) }];
-const noChange: Decision = { reasoning: "Not yet.", changed: false, note: "", edits: [], write: [], remove: [], revert_to: 0, honer_feedback: "" };
+const noChange: Decision = { reasoning: "Not yet.", changed: false, note: "", edits: [], write: [], remove: [], revert_to: 0, sorted: [], honer_feedback: "" };
 
 /** A report's quote, evidence and what changed, as a report on `skill` must carry them; nothing for a skill not made yet. */
 async function on(skill: string): Promise<{ skill: string; quote?: string; evidence?: { command: string; output: string }[]; whatChanged?: string }> {
@@ -33,12 +33,18 @@ class FakeJudge implements Judge {
   }
 }
 
-/** Takes the newest draft as it is. */
+/** Every report in the case sorted one way. */
+const sortAll = (c: Case, kind: "checkable" | "judgment" = "checkable") =>
+  c.feedback.filter((f) => f.quote !== null).map((f) => ({ report: f.id.slice(0, 8), kind, why: kind === "checkable" ? "The evidence shows it." : "A preference." }));
+/** Changes nothing, holding every report as a judgment call. */
+const hold = (c: Case): Decision => ({ ...noChange, sorted: sortAll(c, "judgment") });
+
+/** Takes the newest draft as it is, every report sorted checkable. */
 const takeDraft = (c: Case): Decision => {
   const d = [...c.feedback].reverse().find((f) => f.draft.length);
   return d
-    ? { reasoning: "Supported.", changed: true, note: d.text, edits: [], write: d.draft.map((f) => ({ ...f, executable: f.executable ?? false })), remove: [], revert_to: 0, honer_feedback: "" }
-    : noChange;
+    ? { reasoning: "Supported.", changed: true, note: d.text, edits: [], write: d.draft.map((f) => ({ ...f, executable: f.executable ?? false })), remove: [], revert_to: 0, sorted: sortAll(c), honer_feedback: "" }
+    : { ...noChange, sorted: sortAll(c) };
 };
 
 let dir: string;
@@ -77,20 +83,7 @@ describe("feedback", () => {
     assert.equal((await stat(join(hub.library.path("lint"), "bin/run"))).mode & 0o111, 0o111);
   });
 
-  test("without a draft waits for a few more before the judge looks, and is judged at once on a skill not yet made", async () => {
-    await hub.submitFeedback({ ...(await on("x")), text: "make it", files: draft("x") });
-    await hub.idle();
-    judge.cases = [];
-    judge.decide_ = () => noChange;
-    await hub.submitFeedback({ ...(await on("x")), text: "a" });
-    await hub.submitFeedback({ ...(await on("x")), text: "b" });
-    await hub.idle();
-    assert.equal(judge.cases.length, 0);
-    await hub.submitFeedback({ ...(await on("x")), text: "c" });
-    await hub.idle();
-    assert.equal(judge.cases.length, 1);
-    assert.deepEqual(judge.cases[0]!.feedback.map((f) => f.text), ["a", "b", "c"]);
-    assert.equal(hub.store.waiting("x").length, 0);
+  test("a skill not yet made is judged at once", async () => {
     await hub.submitFeedback({ ...(await on("brand-new")), text: "We need a skill for release notes." });
     await hub.idle();
     assert.equal(judge.cases.at(-1)?.skill, "brand-new");
@@ -141,14 +134,12 @@ describe("a report", () => {
 
   test("that holds is stored with its quote, evidence and what changed, and the judge's case shows them", async () => {
     await make();
-    judge.decide_ = () => noChange;
-    for (let i = 0; i < 3; i++) {
-      await hub.submitFeedback({ skill: "api", quote: "Call getUser() to load a user.", evidence: [...evidence, { command: "grep -r getUser src", output: "" + i }], whatChanged: "Called fetchUser().", text: "It was renamed in #41." });
-    }
+    judge.decide_ = hold;
+    await hub.submitFeedback({ skill: "api", quote: "Call getUser() to load a user.", evidence: [...evidence, { command: "grep -r getUser src", output: "0" }], whatChanged: "Called fetchUser().", text: "It was renamed in #41." });
     await hub.idle();
     const [f] = hub.store.feedback("api", 1);
     assert.equal(f!.quote, "Call getUser() to load a user.");
-    assert.deepEqual(f!.evidence, [...evidence, { command: "grep -r getUser src", output: "2" }]);
+    assert.deepEqual(f!.evidence, [...evidence, { command: "grep -r getUser src", output: "0" }]);
     assert.equal(f!.whatChanged, "Called fetchUser().");
     const text = render(judge.cases.at(-1)!);
     assert.match(text, /<quote>\nCall getUser\(\) to load a user\.\n<\/quote>/);
@@ -213,8 +204,8 @@ describe("the judge", () => {
     hub = await Hub.open(dir, judge, { maxChars: 1000, starters: false });
     judge.decide_ = (c) =>
       c.failure
-        ? { reasoning: "Condensed.", changed: true, note: "small", edits: [], write: draft("x", "short"), remove: [], revert_to: 0, honer_feedback: "" } as Decision
-        : { reasoning: "All of it.", changed: true, note: "big", edits: [], write: [{ path: "SKILL.md", content: skillMd("x", "y".repeat(1000)), executable: false }], remove: [], revert_to: 0, honer_feedback: "" };
+        ? { reasoning: "Condensed.", changed: true, note: "small", edits: [], write: draft("x", "short"), remove: [], revert_to: 0, sorted: [], honer_feedback: "" } as Decision
+        : { reasoning: "All of it.", changed: true, note: "big", edits: [], write: [{ path: "SKILL.md", content: skillMd("x", "y".repeat(1000)), executable: false }], remove: [], revert_to: 0, sorted: [], honer_feedback: "" };
     await hub.submitFeedback({ ...(await on("x")), text: "make it", files: draft("x") });
     await hub.idle();
     assert.equal(judge.cases.length, 2);
@@ -223,7 +214,7 @@ describe("the judge", () => {
     assert.equal(hub.store.versions("x")[0]?.note, "small");
 
     judge.cases = [];
-    judge.decide_ = () => ({ reasoning: "r", changed: true, note: "n", edits: [], write: [{ path: "SKILL.md", content: "no frontmatter", executable: false }], remove: [], revert_to: 0, honer_feedback: "" });
+    judge.decide_ = () => ({ reasoning: "r", changed: true, note: "n", edits: [], write: [{ path: "SKILL.md", content: "no frontmatter", executable: false }], remove: [], revert_to: 0, sorted: [], honer_feedback: "" });
     await hub.submitFeedback({ ...(await on("x")), text: "again", files: draft("x", "z") });
     await hub.idle();
     assert.equal(judge.cases.length, 3);
@@ -257,6 +248,97 @@ describe("the judge", () => {
     await hub.idle();
     assert.match(hub.store.judgments("x").find((j) => j.state === "failed")!.error!, /changed while the judge was deciding/);
     assert.deepEqual(hub.store.versions("x").map((v) => v.note), ["v3", "Revert to version 1", "v2", "v1"]);
+  });
+});
+
+describe("sorting reports", () => {
+  const renamed = { quote: "Call getUser() to load a user.", evidence: [{ path: "src/api.ts", content: "export function fetchUser() {}" }], whatChanged: "Called fetchUser()." };
+  const fix = (c: Case): Decision => ({
+    ...noChange,
+    reasoning: "src/api.ts exports fetchUser, not getUser.",
+    changed: true,
+    note: "getUser is fetchUser",
+    edits: [{ path: "SKILL.md", old: "getUser()", new: "fetchUser()" }],
+    sorted: sortAll(c, "checkable"),
+  });
+  const make = async () => {
+    await hub.submitFeedback({ skill: "api", text: "make it", files: draft("api", "Call getUser() to load a user.") });
+    await hub.idle();
+    judge.cases = [];
+  };
+
+  test("a checkable report revises the skill at once, from that one report", async () => {
+    await make();
+    judge.decide_ = fix;
+    const { feedback: f } = await hub.submitFeedback({ skill: "api", ...renamed });
+    await hub.idle();
+    assert.equal(judge.cases.length, 1);
+    assert.equal(judge.cases[0]!.approved, false);
+    assert.equal(hub.skill("api").version, 2);
+    assert.match((await hub.current("api"))[0]!.content, /Call fetchUser\(\)/);
+    const stored = hub.store.feedback("api", 1)[0]!;
+    assert.deepEqual([stored.id, stored.sort, stored.sortWhy, stored.judgment !== null, stored.sortedBy === stored.judgment], [f.id, "checkable", "The evidence shows it.", true, true]);
+  });
+
+  test("a judgment report produces no revision and is kept pending, held from later judgments until an admin asks", async () => {
+    await make();
+    judge.decide_ = (c) => (c.failure ? hold(c) : { ...fix(c), sorted: sortAll(c, "judgment") });
+    const { feedback: f } = await hub.submitFeedback({ skill: "api", ...renamed, whatChanged: "I'd rather it said fetch." });
+    await hub.idle();
+    assert.equal(hub.skill("api").version, 1, "the revision was refused");
+    assert.match(judge.cases[1]!.failure!, /a judgment call revises no skill on its own/);
+    judge.decide_ = hold;
+    judge.cases = [];
+    await hub.submitFeedback({ skill: "api", ...renamed, whatChanged: "Also prefer fetch." });
+    await hub.idle();
+    const held = hub.store.waiting("api");
+    assert.ok(held.some((h) => h.id === f.id && h.sort === "judgment" && h.judgment === null), "still pending");
+    assert.deepEqual(judge.cases.map((c) => c.feedback.length), [1], "a held report is not judged again with each new one");
+    const [j] = hub.store.judgments("api");
+    assert.ok(hub.store.heldBy(j!.id).length >= 1);
+
+    judge.cases = [];
+    judge.decide_ = (c) => ({ ...fix(c), sorted: sortAll(c, "judgment") });
+    hub.judgeNow("api");
+    await hub.idle();
+    assert.equal(judge.cases[0]!.approved, true);
+    assert.match(render(judge.cases[0]!), /<an_admin_asked_for_this_judgment>/);
+    assert.match(render(judge.cases[0]!), /sorted_before="judgment"/);
+    assert.equal(hub.skill("api").version, 2, "an admin's ask is the agreement");
+    assert.equal(hub.store.waiting("api").length, 0);
+  });
+
+  test("a decision that leaves a report unsorted, or names one not in the case, is refused and retried", async () => {
+    await make();
+    judge.decide_ = (c) =>
+      !c.failure ? { ...fix(c), sorted: [] } : c.failure.includes("not sorted") ? { ...fix(c), sorted: [{ report: "nope1234", kind: "checkable", why: "w" }] } : fix(c);
+    await hub.submitFeedback({ skill: "api", ...renamed });
+    await hub.idle();
+    assert.match(judge.cases[0]! && judge.cases[1]!.failure!, /sort every report as checkable or judgment, with why: [0-9a-f]{8} is not sorted/);
+    assert.match(judge.cases[2]!.failure!, /sorted names report nope1234, which is not in this case/);
+    assert.equal(hub.skill("api").version, 2);
+  });
+
+  test("a library made before reports were sorted opens, its feedback unsorted", async () => {
+    hub.close();
+    const old = await mkdtemp(join(tmpdir(), "honed-old-sort-"));
+    try {
+      const db = new DatabaseSync(join(old, "honed.db"));
+      db.exec("CREATE TABLE feedback (id TEXT PRIMARY KEY, skill TEXT NOT NULL, version INTEGER NOT NULL, text TEXT NOT NULL, quote TEXT, evidence TEXT NOT NULL DEFAULT '[]', what_changed TEXT, draft TEXT NOT NULL, author TEXT NOT NULL, at TEXT NOT NULL, judgment TEXT)");
+      db.exec("INSERT INTO feedback VALUES ('f1', 'x', 1, 'old', 'q', '[]', 'w', '[]', 'someone', '2026-01-01T00:00:00.000Z', NULL)");
+      db.close();
+      hub = await Hub.open(old, null, { starters: false });
+      const [f] = hub.store.feedback("x");
+      assert.deepEqual([f!.sort, f!.sortWhy, f!.sortedBy], [null, null, null]);
+      assert.deepEqual(hub.store.unsorted("x").map((u) => u.id), ["f1"]);
+      hub.store.sortFeedback("f1", "judgment", "taste", "j1");
+      assert.deepEqual(hub.store.unsorted("x"), []);
+      assert.deepEqual(hub.store.heldBy("j1").map((h) => [h.id, h.sort, h.sortWhy]), [["f1", "judgment", "taste"]]);
+    } finally {
+      hub.close();
+      await rm(old, { recursive: true, force: true });
+      hub = await Hub.open(dir, judge, { starters: false });
+    }
   });
 });
 
@@ -514,13 +596,11 @@ describe("the reviewer's fixes", () => {
     }
   });
 
-  test("feedback says what will happen to it: revising, waiting for more, an admin, or nothing", async () => {
+  test("feedback says what will happen to it: judged now, an admin, or nothing", async () => {
     assert.deepEqual((await hub.submitFeedback({ ...(await on("x")), text: "make it", files: draft("x") })).next, { kind: "revising" });
     await hub.idle();
-    judge.decide_ = () => noChange;
-    assert.deepEqual((await hub.submitFeedback({ ...(await on("x")), text: "a" })).next, { kind: "waiting", more: 2 });
-    assert.deepEqual((await hub.submitFeedback({ ...(await on("x")), text: "b" })).next, { kind: "waiting", more: 1 });
-    assert.deepEqual((await hub.submitFeedback({ ...(await on("x")), text: "c" })).next, { kind: "revising" });
+    judge.decide_ = hold;
+    assert.deepEqual((await hub.submitFeedback({ ...(await on("x")), text: "a" })).next, { kind: "revising" }, "judged at once, alone");
     assert.deepEqual((await hub.submitFeedback({ ...(await on("honed/honer")), text: "stricter" })).next, { kind: "admin" });
     await hub.idle();
     hub.close();

@@ -152,8 +152,9 @@ export function mcpServer(hub: Hub, version: string, caller: Caller, local: bool
         const { next } = await hub.submitFeedback({ skill: name, quote, evidence, whatChanged: what_changed, text: feedback, files, author: authorOf(caller, local, author) });
         if (next.kind === "off") return "Recorded. Revision is off on this server, so it will be read by a person.";
         if (next.kind === "admin") return `Recorded. ${name} is revised only when an admin asks; your feedback will be there when they do.`;
-        if (next.kind === "waiting") return `Recorded. ${name} is revised once ${next.more} more piece${next.more === 1 ? "" : "s"} of feedback arrive, or sooner if someone includes a draft.`;
-        return hub.store.skill(name) ? `Recorded. ${name} is being revised from it now.` : `Recorded. The new skill ${name} is being considered now.`;
+        return hub.store.skill(name)
+          ? `Recorded. The honer is judging it now: if your evidence shows the quoted text is wrong, ${name} is fixed from it; anything else waits until other sessions or an admin agree.`
+          : `Recorded. The new skill ${name} is being considered now.`;
       }),
   );
 
