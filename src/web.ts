@@ -7,7 +7,7 @@ import { html, raw } from "hono/html";
 import type { HtmlEscapedString } from "hono/utils/html";
 import { COOKIE, deleteRoute, describeApi, editRoute, getJudgmentRoute, getSkillRoute, honoPath, judgeRoute, limitRoute, listSkillsRoute, previewRoute, revertRoute, WRITE_HEADER } from "./api.ts";
 import { callerOf } from "./auth.ts";
-import { LETTERS_ONLY, SUMMARY, SWORD_PIXELS, TAGLINE } from "./banner.ts";
+import { DEFAULT_URL, LETTERS_ONLY, SUMMARY, SWORD_PIXELS, TAGLINE } from "./banner.ts";
 import { baseName, HONER_SKILL, reportName, NAMESPACES_HEADER, parseNamespaces, Scope, LOCAL_CALLER, NAME_ROUTE, prefixOf, Refusal, SKILL_FILE, type Caller, type Feedback, type Judgment } from "./domain.ts";
 import { parseDiff } from "./diffview.ts";
 import { renderMarkdown, withoutFrontmatter } from "./markdown.ts";
