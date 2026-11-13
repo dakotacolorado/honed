@@ -20,7 +20,10 @@ export class Library {
 
   private async git(args: string[]): Promise<string> {
     try {
-      const { stdout } = await run("git", ["-C", this.root, ...args], { maxBuffer: 64 * 1024 * 1024, encoding: "utf8" });
+      // honed commits as itself whatever the repository's or the machine's git
+      // settings say, so a library moved onto a machine with no git identity
+      // (a container) still records every version.
+      const { stdout } = await run("git", ["-c", "user.name=honed", "-c", "user.email=honed@localhost", "-C", this.root, ...args], { maxBuffer: 64 * 1024 * 1024, encoding: "utf8" });
       return stdout;
     } catch (e) {
       const err = e as { stderr?: string };
