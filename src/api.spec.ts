@@ -65,3 +65,22 @@ test("the contract and the API's docs need no token, on a honed that has tokens,
     await rm(dir, { recursive: true, force: true });
   }
 });
+
+test("every page links the API and MCP docs from its docs menu, the sign-in page included", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "honed-api-"));
+  const hub = await Hub.open(dir, null, { starters: false });
+  try {
+    const local = app(hub, "test");
+    const home = await (await local.fetch(new Request("http://127.0.0.1/", { headers: { host: "127.0.0.1" } }))).text();
+    createToken(hub.store, "dakota", true);
+    const signIn = await (await app(hub, "test", { shared: true }).fetch(new Request("https://honed.example.com/login", { headers: { host: "honed.example.com" } }))).text();
+    for (const page of [home, signIn]) {
+      assert.match(page, /<details class="docs-menu">/);
+      assert.match(page, /href="\/docs\/api"/);
+      assert.match(page, /href="\/docs\/mcp"/);
+    }
+  } finally {
+    hub.close();
+    await rm(dir, { recursive: true, force: true });
+  }
+});

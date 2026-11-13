@@ -52,7 +52,15 @@ const CSS = `
 }
 * { box-sizing:border-box; }
 body { margin:0; background:var(--bg); color:var(--fg); font:15px/1.55 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; }
-main { max-width:920px; margin:0 auto; padding:20px 16px 72px; }
+main { max-width:920px; margin:0 auto; padding:20px 16px 72px; position:relative; }
+details.docs-menu { position:absolute; top:20px; right:16px; margin:0; z-index:2; font-family:var(--mono); font-size:13px; }
+details.docs-menu summary { list-style:none; padding:4px 12px; border:1px solid var(--line); border-radius:999px; background:var(--card); color:var(--muted); }
+details.docs-menu summary::-webkit-details-marker { display:none; }
+details.docs-menu summary:hover, details.docs-menu[open] summary { color:var(--edge); border-color:var(--edge); }
+details.docs-menu ul { position:absolute; right:0; margin:6px 0 0; padding:6px 0; list-style:none; min-width:240px; white-space:nowrap; background:var(--card); border:1px solid var(--line); border-radius:10px; box-shadow:0 6px 20px rgb(0 0 0 / .12); }
+details.docs-menu li a { display:block; padding:6px 14px; color:var(--fg); }
+details.docs-menu li a:hover { background:var(--edge-soft); text-decoration:none; }
+details.docs-menu li a .muted { font-size:12px; }
 a { color:var(--edge); text-decoration:none; } a:hover { text-decoration:underline; }
 :focus-visible { outline:2px solid var(--edge); outline-offset:2px; border-radius:4px; }
 .mono, code, pre, h1, h2, .name, .pill, button, .brand, .tabs a, .tag { font-family:var(--mono); }
@@ -180,7 +188,12 @@ document.addEventListener("input", (ev) => {
   form.querySelector(".preview").innerHTML = "";
   form.querySelector("button[type=submit]").hidden = true;
 });
+document.addEventListener("click", (ev) => {
+  const menu = document.querySelector("details.docs-menu");
+  if (menu?.open && !menu.contains(ev.target)) menu.open = false;
+});
 document.addEventListener("keydown", (ev) => {
+  if (ev.key === "Escape") document.querySelector("details.docs-menu")?.removeAttribute("open");
   const q = document.querySelector("input[type=search]");
   if (ev.key === "/" && q && document.activeElement?.tagName !== "INPUT" && document.activeElement?.tagName !== "TEXTAREA") { ev.preventDefault(); q.focus(); }
 });
@@ -202,6 +215,7 @@ function page(title: string, body: Html, opts: { refresh?: boolean; viewer?: Vie
   </head>
   <body>
     <main>
+      ${DOCS_MENU}
       <a class="wordmark ${opts.home ? "" : "small"}" href="/" aria-label="honed, all skills"><pre aria-hidden="true">${LETTERS_ONLY}</pre>${SWORD_SVG}</a>
       ${body}
       <footer>🗡 honed${opts.version ? ` v${opts.version}` : ""}${who}${opts.footer ?? ""}</footer>
@@ -210,6 +224,14 @@ function page(title: string, body: Html, opts: { refresh?: boolean; viewer?: Vie
   </body>
 </html>`;
 }
+
+/** The docs, at the top right of every page: none needs a token. */
+const DOCS_MENU = html`<details class="docs-menu"><summary aria-label="Docs">docs ▾</summary><ul>
+  <li><a href="/docs/api">API docs <span class="muted">/docs/api</span></a></li>
+  <li><a href="/docs/mcp">MCP server docs <span class="muted">/docs/mcp</span></a></li>
+  <li><a href="/openapi.json">openapi.json</a></li>
+  <li><a href="/mcp.json">mcp.json</a></li>
+</ul></details>`;
 
 /** The sword beside the wordmark, drawn from its pixel grid: square pixels, crisp edges, in the page's accent color. */
 const SWORD_SVG = raw(
