@@ -605,10 +605,18 @@ function loginPage(error?: string): Html {
     html`<h1>Sign in</h1>
       <p class="muted">This honed is shared. Paste the token you were given; <code>honed token create &lt;name&gt;</code> on the server makes one.</p>
       <form method="post" action="/login" class="search"><input type="password" name="token" placeholder="honed_…" aria-label="Token" autocomplete="current-password" /><button type="submit" class="primary">Sign in</button></form>
-      ${error ? html`<p class="refusal" role="alert">${error}</p>` : ""}`,
+      ${error ? html`<p class="refusal" role="alert">${error}</p>` : ""}
+      ${error ? "" : html`<script>${raw(HANDOFF)}</script>`}`,
     { home: true },
   );
 }
+
+/**
+ * Signed in from the workplace UI: a link whose address ends #signin=<token> reaches this page
+ * (a signed-out page redirects here, and the browser keeps the fragment), which signs in with it
+ * as the form would, after dropping it from the address. Not on a refusal, so a bad token cannot loop.
+ */
+const HANDOFF = `{const m=/(?:^#|&)signin=([^&]+)/.exec(location.hash);if(m){history.replaceState(null,"",location.pathname);const f=document.querySelector('form[action="/login"]');f.token.value=decodeURIComponent(m[1]);f.submit();}}`;
 
 function notFound(message: string): Html {
   return page("Not found · honed", html`<h1>Nothing here</h1><p class="muted">${message}.</p><p><a class="back" href="/">← all skills</a></p>`);
