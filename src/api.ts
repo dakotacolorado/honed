@@ -190,6 +190,27 @@ const writeRefusals = {
 const security: Record<string, string[]>[] = [{ bearerAuth: [] }, { cookieAuth: [] }, {}];
 const write = { tags: ["writes"], security, request: { params: NameParam, headers: WriteHeaders } };
 
+export const healthRoute = createRoute({
+  method: "get",
+  path: "/health",
+  operationId: "getHealth",
+  tags: ["platform"],
+  summary: "Get health",
+  description: "Says this honed is up, and which version and commit it runs, for a health check or a deploy to confirm what it shipped. Needs no token, even on a shared honed, and is never sent to sign in.",
+  responses: {
+    200: json(
+      z
+        .object({
+          ok: z.literal(true).describe("Always true."),
+          version: z.string().describe("The package version it runs."),
+          commit: z.string().describe("The commit it was built from, `-dirty` when its tree differed; `unknown` when built without git."),
+        })
+        .openapi("Health"),
+      "honed is up.",
+    ),
+  },
+});
+
 export const listSkillsRoute = createRoute({
   method: "get",
   path: "/api/skills",
@@ -391,6 +412,7 @@ export function describeApi(web: OpenAPIHono<any>, version: string): void {
       { name: "skills", description: "The library: each skill, its files, versions and feedback." },
       { name: "judgments", description: "Why a skill is as it is." },
       { name: "writes", description: "A person's changes. Each takes an admin token and the write header." },
+      { name: "platform", description: "Whether this honed is up, and what it runs." },
     ],
   });
 }

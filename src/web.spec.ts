@@ -316,6 +316,15 @@ describe("a server with tokens", () => {
     assert.equal(page.headers.get("location"), "/login");
   });
 
+  test("answers health without a token, with its version and commit", async () => {
+    const res = await fetch(`${s.base}/health`, { redirect: "manual" });
+    assert.equal(res.status, 200);
+    const body = (await res.json()) as { ok: boolean; version: string; commit: string };
+    assert.equal(body.ok, true);
+    assert.equal(body.version, "test");
+    assert.match(body.commit, /^(?:[0-9a-f]{40}(?:-dirty)?|unknown)$/);
+  });
+
   test("serves one skill by name, its slash plain or escaped, with its version and files, to any token", async () => {
     const client = await connect(s.base, agent);
     await call(client, "submit_feedback", { name: "team/runbook", feedback: "make it", files: [{ path: "SKILL.md", content: "---\nname: runbook\ndescription: Running it.\n---\n" }, { path: "check.sh", content: "#!/bin/sh\n", executable: true }] });

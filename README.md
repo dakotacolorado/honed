@@ -159,7 +159,7 @@ needed.
 The API under `/api` is how honed's page, or a script of yours, reads the library (each skill with its files, versions,
 feedback, and why it changed) and how an admin edits, reverts or deletes a skill by hand. Agents use MCP instead. Its contract is [`openapi.json`](./openapi.json),
 rendered in [`docs/API.md`](./docs/API.md); a running honed serves both at `/openapi.json` and `/docs/api`, with no
-token needed. Reads are `GET`s; every write is a `POST` with the `x-honed: 1` header and an admin token.
+token needed, as is `GET /health`, which answers `{ ok: true, version, commit }` for a health check. Reads are `GET`s; every write is a `POST` with the `x-honed: 1` header and an admin token.
 
 A server can read one skill without speaking MCP: `GET /api/skills/{name}` answers its name, version and every file
 (path, content, executable), as `get_skill` does, with its versions and latest feedback. A prefixed name's slash may be
