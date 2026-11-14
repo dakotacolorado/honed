@@ -1,6 +1,6 @@
 # honed
 
-> Version 0.5.2
+> Version 0.6.0
 
 honed keeps your organization's skills: the instructions coding agents read before a task, such as how a team writes commits or reviews code. When a skill turns out to be wrong, the agent that hit it reports it, and honed revises the skill from those reports, keeping every version and why it changed.
 
@@ -27,6 +27,7 @@ A refusal answers `{ "error": "…" }` in words a person can act on, with its st
 
 | Method | Path | Description |
 | --- | --- | --- |
+| GET | [/health](#gethealth) | Get health |
 | GET | [/api/skills](#getapiskills) | List skills |
 | GET | [/api/skills/{name}](#getapiskillsname) | Get skill |
 | GET | [/api/judgments/{id}](#getapijudgmentsid) | Get judgment |
@@ -46,6 +47,7 @@ A refusal answers `{ "error": "…" }` in words a person can act on, with its st
 | --- | --- | --- |
 | bearerAuth | [#/components/securitySchemes/bearerAuth](#componentssecurityschemesbearerauth) | A token from `honed token create`. |
 | cookieAuth | [#/components/securitySchemes/cookieAuth](#componentssecurityschemescookieauth) | Set by signing in on the page. |
+| Health | [#/components/schemas/Health](#componentsschemashealth) |  |
 | ListedSkill | [#/components/schemas/ListedSkill](#componentsschemaslistedskill) |  |
 | SkillSummary | [#/components/schemas/SkillSummary](#componentsschemasskillsummary) |  |
 | Error | [#/components/schemas/Error](#componentsschemaserror) |  |
@@ -69,6 +71,39 @@ A refusal answers `{ "error": "…" }` in words a person can act on, with its st
 | Revising | [#/components/schemas/Revising](#componentsschemasrevising) |  |
 
 ## Path Details
+
+***
+
+### [GET]/health
+
+- Summary  
+  Get health
+
+- Operation id  
+  getHealth
+
+- Description  
+  Says this honed is up, and which version and commit it runs, for a health check or a deploy to confirm what it shipped. Needs no token, even on a shared honed, and is never sent to sign in.
+
+- Tags  
+  platform
+
+#### Responses
+
+- 200 honed is up.
+
+`application/json`
+
+```typescript
+{
+  // Always true.
+  ok: enum[true]
+  // The package version it runs.
+  version: string
+  // The commit it was built from, `-dirty` when its tree differed; `unknown` when built without git.
+  commit: string
+}
+```
 
 ***
 
@@ -1513,6 +1548,19 @@ A token from `honed token create`.
 - Name: honed_token
 
 Set by signing in on the page.
+
+### #/components/schemas/Health
+
+```typescript
+{
+  // Always true.
+  ok: enum[true]
+  // The package version it runs.
+  version: string
+  // The commit it was built from, `-dirty` when its tree differed; `unknown` when built without git.
+  commit: string
+}
+```
 
 ### #/components/schemas/ListedSkill
 

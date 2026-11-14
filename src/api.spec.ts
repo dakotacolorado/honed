@@ -20,12 +20,12 @@ test("the committed openapi.json is what honed serves: npm run spec writes it", 
   assert.deepEqual(JSON.parse(readFileSync(SPEC_FILE, "utf8")), await served);
 });
 
-test("every /api route honed answers is in the contract, and nothing else", async () => {
+test("every /api route honed answers, and /health, is in the contract, and nothing else", async () => {
   const dir = await mkdtemp(join(tmpdir(), "honed-api-"));
   const hub = await Hub.open(dir, null, { starters: false });
   try {
     const answered = app(hub, "test")
-      .routes.filter((r) => r.path.startsWith("/api/") && r.method !== "ALL")
+      .routes.filter((r) => (r.path.startsWith("/api/") || r.path === "/health") && r.method !== "ALL")
       .map((r) => `${r.method.toLowerCase()} ${r.path}`);
     const declared = Object.entries((await served).paths).flatMap(([path, ops]) => Object.keys(ops).map((method) => `${method} ${honoPath(path)}`));
     assert.deepEqual([...answered].sort(), [...declared].sort());

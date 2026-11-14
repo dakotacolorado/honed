@@ -1,6 +1,6 @@
 {
   "name": "@dakotajp/honed",
-  "version": "0.5.2",
+  "version": "0.6.0",
   "description": "Share and hone skills across your organization: an MCP server where agents get skills and submit feedback, and each skill is revised from it.",
   "keywords": [
     "mcp",
@@ -36,7 +36,7 @@
   },
   "scripts": {
     "dev": "node src/cli.ts",
-    "build": "rm -rf dist && tsc -p tsconfig.build.json && cp src/judge-contract.md dist/ && cp -R src/starters dist/starters",
+    "build": "rm -rf dist && tsc -p tsconfig.build.json && cp src/judge-contract.md dist/ && cp -R src/starters dist/starters && node src/build.ts dist/build.json",
     "typecheck": "tsc --noEmit",
     "test": "node --test 'src/**/*.spec.ts'",
     "prepublishOnly": "npm run typecheck && npm test",

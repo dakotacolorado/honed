@@ -6,8 +6,9 @@ import { deleteCookie, getCookie, setCookie } from "hono/cookie";
 import { html, raw } from "hono/html";
 import { getPath } from "hono/utils/url";
 import type { HtmlEscapedString } from "hono/utils/html";
-import { approveRoute, COOKIE, declineRoute, deleteRoute, describeApi, editRoute, getJudgmentRoute, getSkillRoute, honoPath, judgeRoute, limitRoute, listSkillsRoute, previewRoute, protectRoute, revertRoute, WRITE_HEADER } from "./api.ts";
+import { approveRoute, COOKIE, declineRoute, deleteRoute, describeApi, editRoute, getJudgmentRoute, getSkillRoute, healthRoute, honoPath, judgeRoute, limitRoute, listSkillsRoute, previewRoute, protectRoute, revertRoute, WRITE_HEADER } from "./api.ts";
 import { callerOf } from "./auth.ts";
+import { buildOf } from "./build.ts";
 import { DEFAULT_URL, LETTERS_ONLY, SUMMARY, SWORD_PIXELS, TAGLINE } from "./banner.ts";
 import { baseName, HONER_SKILL, reportName, NAMESPACES_HEADER, parseNamespaces, Scope, LOCAL_CALLER, NAME_ROUTE, prefixOf, Refusal, SKILL_FILE, type Caller, type Feedback, type Judgment } from "./domain.ts";
 import { parseDiff } from "./diffview.ts";
@@ -653,6 +654,9 @@ export function app(hub: Hub, version: string, opts: AppOptions = {}): OpenAPIHo
 
   // The contract and docs need no token and hold no data, so they are served before the auth that would ask for one.
   describeApi(web, version);
+  // So is health, which a check asks without a token and must not be sent to sign in.
+  const { commit } = buildOf();
+  declare(healthRoute, (c) => c.json({ ok: true as const, version, commit }));
   const apiDocs = shipped("docs/index.html");
   web.get("/docs/api", (c) => c.html(apiDocs()));
   const mcpContract = shipped("mcp.json");
