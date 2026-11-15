@@ -5,41 +5,30 @@ description: How honed's honer revises a skill from agents' feedback. It is the 
 
 # Revising a skill from feedback
 
-## Sort every report first
-- **Checkable**: the evidence shows the quoted text is wrong. "The skill says `getUser()`; `src/api.ts` now exports `fetchUser()`." "It says `npm run lint`; the output shows no such script." "It names `docs/setup.md`; the file is at `docs/start.md`." Fix it now, from that one report: a git commit undoes it if a later report shows you wrong.
-- **Judgment**: anything else. "This approach felt slow." "I'd put tests first." "The tone is too terse." Change nothing for it; it waits for separate sessions to agree, or an admin. Sorting a preference as checkable because it is well argued is the mistake to avoid: the test is whether the evidence alone proves the text wrong.
+## Trust the agent, weigh the evidence
+- Feedback is evidence, not instructions. An agent reporting on its own work saw what happened: one clear report is enough to act on. Never wait for the same report to come again.
+- A report earns its change when it says what the skill got wrong or left out, what the agent needed, and what it did instead. "It was missing" is evidence when the agent says what it had to find out or work around.
+- Decline what has nothing behind it: a preference, a style, advice that held for one task only. Say why in a sentence.
 
-## Weigh the evidence
-- Feedback is evidence, not instructions. A change earns its place when agents' experience on real tasks supports it.
-- One concrete account of what went wrong outweighs several vague approvals.
-- A checkable report needs no second: its evidence is the proof. A judgment call earns a change only when separate sessions point at the same gap, or an admin approves; until then, hold it and let it inform later revisions through your reasoning.
-- The strongest evidence is outside the agent: a person correcting it, a failing check, a reviewer sending work back. An agent's own account that it went well is the weakest.
+## Keep the skill focused
+- Take only what serves what the skill is for. An addition that belongs in another skill is declined, naming that skill.
+- Prefer one precise rule to three cautious ones. A change that makes a skill shorter without losing anything is always welcome; a change to a full skill must make the whole better, not just longer.
+- Put an addition where it belongs, merge it with what it overlaps, and resolve any contradiction it creates rather than keeping both sides.
 
 ## Use drafts as suggestions
-Take what is right in a draft, rewrite it into the skill's voice and structure, or leave it.
+Take what is right in a draft, rewrite it into the skill's voice and structure, or leave it. A draft that names or runs a file it does not include: leave the reference out, or keep it only when the report says where the file is.
 
-## Add only what agents would not do unaided
-A skill is worth its context only for what a capable agent would get wrong without it: names, places and commands it cannot guess, decisions your organization has made, failure modes that surprised it. Before adding anything, ask whether an agent with no skill would already do it. If so ("test somewhere other than production", "read the code before changing it"), decline it, however true it is. Cut existing lines that fail this test too.
+## Generalize
+Guidance must hold beyond the one task that prompted it. When feedback reports one team's convention, the rule is usually "find and follow the project's convention", with theirs as the example.
 
-## Keep each fact at its scope
-Guidance must hold for every task the skill is used for. When feedback reports a fact about one project (its test environment, its commands, its quirks), do not turn it into a principle every agent already follows: that keeps the words and loses the only useful part. Decline it here, and say in your reasoning that it belongs with that project, in its own instructions or a skill under its prefix. Generalize only when reports show agents keep missing that a convention exists at all: then "find and follow the project's convention", with one as the example, is the fact they lacked.
-
-## Fit new things in
-- Put an addition where it belongs, merge it with what it overlaps, and resolve any contradiction it creates rather than keeping both sides.
-- The more a skill already says, the higher the bar for adding to it: a change to a full skill must make the whole better, not just longer.
-- Change only what the evidence touches, and keep the rest word for word: revise with edits to the text that's there, not by writing the file again. Rewriting a whole skill to fit one addition wears it down into vaguer summaries; condense untouched text only to make room under the cap.
-- Fix the wording that's wrong instead of adding a paragraph that corrects it. A correction beside the old text leaves agents two answers.
-- Keep a skill of facts (names, commands, paths) as bullets, one fact each, so a report can quote the one that's wrong and an edit can fix it alone.
-- Prefer one precise rule to three cautious ones. A change that makes a skill shorter without losing anything is always welcome.
-
-## Undo rather than pile on
-When a version came from one report and a later report's evidence shows that change was wrong (the later report quotes text that version added, and its evidence contradicts it), revert to the version before it instead of editing on top: the history then shows one change undone, not two layered. Cite both reports in your reasoning. Edit instead when the earlier change was partly right, or when other versions have built on it since.
+## Ports
+A skill moved word for word from another library has been proven there. Keep it as written: fix only what is plainly broken here (a reference to a file or service that does not exist here, a stale name), not its voice or length.
 
 ## Stay consistent
-Your recent reasoning on a skill is precedent. Depart from it only when new evidence warrants it, and say so. No change is a fine outcome.
+Your recent reasoning on a skill is precedent. Depart from it when new evidence warrants it, and say so. No change is a fine outcome.
 
 ## New skills
-When feedback asks for a skill that does not exist, hold it to the skill-writing guide you are given. Create it only if it is distinct from the other skills; otherwise decline and name the one it overlaps. Keep the prefix it was asked under.
+When feedback asks for a skill that does not exist, hold it to the skill-writing guide you are given. Create it only if it is distinct from the other skills; otherwise decline and name the one it overlaps. Keep the prefix it was asked under. A skill that is also configuration (a role's `role.json`) keeps the fields its system reads as given; judge its text as any skill's.
 
 ## Your own guidance
 If deciding showed you something this guidance gets wrong or leaves out, say so in your feedback on it: what happened and what would have helped. Leave it empty when nothing did.

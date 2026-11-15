@@ -23,8 +23,8 @@ const takeDraft: Judge = {
   label: "a fake judge",
   async decide(c) {
     const d = [...c.feedback].reverse().find((f) => f.draft.length);
-    // A report with a draft is sorted checkable, one without a judgment call.
-    const sorted = c.feedback.filter((f) => f.quote !== null).map((f) => ({ report: f.id.slice(0, 8), kind: f.draft.length ? ("checkable" as const) : ("judgment" as const), why: f.draft.length ? "Its evidence shows the text wrong." : "A matter of taste." }));
+    // A report with a draft is accepted, one without declined.
+    const sorted = c.feedback.filter((f) => f.quote !== null).map((f) => ({ report: f.id.slice(0, 8), kind: f.draft.length ? ("accepted" as const) : ("declined" as const), why: f.draft.length ? "Its evidence shows the text wrong." : "A matter of taste." }));
     return (d
       ? { reasoning: "Supported by the report.", changed: true, note: d.text, edits: [], write: d.draft.map((f) => ({ ...f, executable: f.executable ?? false })), remove: [], revert_to: 0, sorted, honer_feedback: "" }
       : { reasoning: "Not yet.", changed: false, note: "", edits: [], write: [], remove: [], revert_to: 0, sorted, honer_feedback: "" }) satisfies Decision;
@@ -287,11 +287,11 @@ test("the page shows how the judge sorted each report, and why", async () => {
     const { feedback: taste } = await s.hub.submitFeedback({ ...report, quote: "Run `./deploy`.", whatChanged: "I'd write it as a list." });
     await s.hub.idle();
     const tab = await (await fetch(`${s.base}/skills/docs/y?tab=feedback`)).text();
-    assert.match(tab, /sorted checkable: acted on at once by <a href="\/judgments\/[^"]+">the honer<\/a>: Its evidence shows the text wrong\./);
-    assert.match(tab, /sorted a judgment call: waits for separate sessions or an admin to agree by <a[^>]*>the honer<\/a>: A matter of taste\./);
-    assert.match(tab, /held for agreement/);
+    assert.match(tab, /accepted: acted on by <a href="\/judgments\/[^"]+">the honer<\/a>: Its evidence shows the text wrong\./);
+    assert.match(tab, /declined by <a[^>]*>the honer<\/a>: A matter of taste\./);
+    assert.doesNotMatch(tab, /held for agreement/);
     const why = await (await fetch(`${s.base}/judgments/${s.hub.store.feedback("docs/y").find((f) => f.id === taste.id)!.sortedBy}`)).text();
-    assert.match(why, /<h2>held for agreement<\/h2>/);
+    assert.match(why, /<h2>the feedback behind it<\/h2>/);
     assert.match(why, /I&#39;d write it as a list\./);
   } finally {
     await s.close();

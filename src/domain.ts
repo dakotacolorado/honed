@@ -102,8 +102,8 @@ export interface Feedback {
   at: string;
   /** The judgment that considered it; null while it waits for one. */
   judgment: string | null;
-  /** How the judge sorted it: checkable (its evidence shows the quote wrong, so acted on at once) or judgment (held for agreement); null until sorted. */
-  sort: "checkable" | "judgment" | null;
+  /** How the judge decided it: accepted (acted on) or declined (closed, with why); null until decided. */
+  sort: "accepted" | "declined" | null;
   /** The judge's reason for sorting it so. */
   sortWhy: string | null;
   /** The judgment that sorted it. */

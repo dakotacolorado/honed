@@ -1,6 +1,6 @@
 # honed
 
-> Version 0.6.1
+> Version 0.6.2
 
 honed keeps your organization's skills: the instructions coding agents read before a task, such as how a team writes commits or reviews code. When a skill turns out to be wrong, the agent that hit it reports it, and honed revises the skill from those reports, keeping every version and why it changed.
 
@@ -270,8 +270,8 @@ name: string //pattern: ^(?:[a-z0-9]+(?:-[a-z0-9]+)*\/)?[a-z0-9]+(?:-[a-z0-9]+)*
     at: string
     // The judgment that considered it; null while it waits for one.
     judgment: string | null
-    // How the judge sorted it: checkable (its evidence shows the quote wrong, so acted on at once) or judgment (held for agreement); null until sorted.
-    sort: enum[checkable, judgment, ] | null
+    // How the judge decided it: accepted (acted on) or declined (closed, with why); null until decided.
+    sort: enum[accepted, declined, ] | null
     // The judge's reason for sorting it so.
     sortWhy: string | null
     // The judgment that sorted it.
@@ -381,8 +381,8 @@ id: string
      at: string
      // The judgment that considered it; null while it waits for one.
      judgment: string | null
-     // How the judge sorted it: checkable (its evidence shows the quote wrong, so acted on at once) or judgment (held for agreement); null until sorted.
-     sort: enum[checkable, judgment, ] | null
+     // How the judge decided it: accepted (acted on) or declined (closed, with why); null until decided.
+     sort: enum[accepted, declined, ] | null
      // The judge's reason for sorting it so.
      sortWhy: string | null
      // The judgment that sorted it.
@@ -1441,7 +1441,7 @@ Why.
   reviseSkill
 
 - Description  
-  Has the judge consider the skill now, whatever feedback is waiting, judgment reports held for agreement included, which this approves; the only way `honed/honer` is revised. Answers at once: the judgment appears in the skill's history when done. Needs an admin token.
+  Has the judge consider the skill now, with whatever feedback is waiting; the only way `honed/honer` is revised. Answers at once: the judgment appears in the skill's history when done. Needs an admin token.
 
 - Tags  
   writes
@@ -1672,8 +1672,8 @@ Set by signing in on the page.
     at: string
     // The judgment that considered it; null while it waits for one.
     judgment: string | null
-    // How the judge sorted it: checkable (its evidence shows the quote wrong, so acted on at once) or judgment (held for agreement); null until sorted.
-    sort: enum[checkable, judgment, ] | null
+    // How the judge decided it: accepted (acted on) or declined (closed, with why); null until decided.
+    sort: enum[accepted, declined, ] | null
     // The judge's reason for sorting it so.
     sortWhy: string | null
     // The judgment that sorted it.
@@ -1752,8 +1752,8 @@ object | null
   at: string
   // The judgment that considered it; null while it waits for one.
   judgment: string | null
-  // How the judge sorted it: checkable (its evidence shows the quote wrong, so acted on at once) or judgment (held for agreement); null until sorted.
-  sort: enum[checkable, judgment, ] | null
+  // How the judge decided it: accepted (acted on) or declined (closed, with why); null until decided.
+  sort: enum[accepted, declined, ] | null
   // The judge's reason for sorting it so.
   sortWhy: string | null
   // The judgment that sorted it.
@@ -1807,8 +1807,8 @@ object | null
      at: string
      // The judgment that considered it; null while it waits for one.
      judgment: string | null
-     // How the judge sorted it: checkable (its evidence shows the quote wrong, so acted on at once) or judgment (held for agreement); null until sorted.
-     sort: enum[checkable, judgment, ] | null
+     // How the judge decided it: accepted (acted on) or declined (closed, with why); null until decided.
+     sort: enum[accepted, declined, ] | null
      // The judge's reason for sorting it so.
      sortWhy: string | null
      // The judgment that sorted it.

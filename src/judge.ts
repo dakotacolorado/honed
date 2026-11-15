@@ -24,11 +24,11 @@ export const DecisionSchema = z.object({
     .array(
       z.object({
         report: z.string().describe("The report's id, from <feedback id=…>."),
-        kind: z.enum(["checkable", "judgment"]).describe("checkable: its evidence shows the quoted text is wrong. judgment: anything else."),
+        kind: z.enum(["accepted", "declined"]).describe("accepted: from the agent's own work, it shows the skill wrong, out of date or missing something agents need; acted on now. declined: a preference with nothing behind it, advice for one task only, outside the skill, or longer without better; closed."),
         why: z.string().describe("In a sentence: what in the evidence decided it."),
       }),
     )
-    .describe("Every report (feedback with a <quote>) sorted, each once. A judgment report is not acted on: it waits for agreement."),
+    .describe("Every report (feedback with a <quote>) decided, each once: accepted or declined, now. None waits for agreement."),
   revert_to: z
     .number()
     .int()
@@ -55,7 +55,7 @@ export interface Case {
   others: { name: string; description: string }[];
   feedback: Feedback[];
   precedent: Precedent[];
-  /** An admin asked for this judgment: held judgment reports are in it, and may revise the skill. */
+  /** An admin asked for this judgment: the skill is judged now, whatever feedback is waiting. */
   approved: boolean;
   /** Why the judge's last attempt at this same case was refused, for it to correct. */
   failure: string | null;
@@ -103,7 +103,7 @@ export function render(c: Case): string {
     `<skill name="${c.skill}" version="${c.version}" characters="${textSize(c.files)}" cap="${c.maxChars}">\n${current}\n</skill>`,
     `<other_skills>\n${c.others.map((o) => `<skill name="${attr(o.name)}">${o.description}</skill>`).join("\n") || "none"}\n</other_skills>`,
     ...(c.writingGuide ? [`<skill_writing_guide>\n${c.writingGuide}\n</skill_writing_guide>`] : []),
-    ...(c.approved ? ["<an_admin_asked_for_this_judgment>\nAn admin asked for it, so judgment reports held for agreement are included, and any report may revise the skill. Sort them still.\n</an_admin_asked_for_this_judgment>"] : []),
+    ...(c.approved ? ["<an_admin_asked_for_this_judgment>\nAn admin asked for it: judge the skill now, with whatever feedback is waiting. Decide every report still.\n</an_admin_asked_for_this_judgment>"] : []),
     `<new_feedback>\n${feedback || "none"}\n</new_feedback>`,
     `<your_recent_judgments_on_this_skill>\n${precedent || "none"}\n</your_recent_judgments_on_this_skill>`,
     ...(c.failure ? [`<your_last_attempt_was_refused>\n${c.failure}\n</your_last_attempt_was_refused>`] : []),
