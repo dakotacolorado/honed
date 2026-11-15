@@ -12,7 +12,8 @@ Streamable HTTP at `/mcp`, stateless, answering JSON. A honed with no tokens, st
 answers only `127.0.0.1`, `localhost` or `[::1]`; once it has tokens, every request carries one as
 `Authorization: Bearer honed_…`, from `honed token create`. Feedback is recorded as from that token's name.
 `x-honed-namespaces` names the namespaces a session's repo uses, comma-separated: it sees the skills in them and honed's own
-`honed/`, and no others. Without it, a session sees only `honed/`.
+`honed/`, and no others. Without it, a session sees only `honed/`. It limits what a session reads, not what it reports on:
+`submit_feedback` takes a report on any skill, or a request for a new one under any name, from any session.
 A refusal comes back as the tool's error, in the server's words.
 
 Claude Code connects with the honed plugin (`claude plugin install honed@honed`), which also asks each session for
@@ -47,11 +48,12 @@ skills the session is bound to. Here, as a session bound to no namespace sees it
 > - Before a task, search_skills for what it is about (or list_skills), and get_skill any whose description fits. Follow what you read.
 > - If you edited something a skill mentions, or a skill gave you wrong information, report it before you finish, quoting the skill's text and showing the evidence. Use submit_feedback: quote is the skill's exact text, evidence the file as it is now or the command and what it printed, what_changed what you did or changed. Otherwise send nothing. Include files when you know the exact fix. Never include secrets or personal details.
 > - To add a skill, read honed/skill-writing first, then submit_feedback under the new name with a draft of its SKILL.md.
+> - submit_feedback takes a report on any skill, by its name, whichever namespaces this session sees: report on the skills you were started with too.
 >
 > This session's repo is bound to no namespace, so it sees only honed's own honed/ skills:
 > - none
 >
-> To bind a repo to the namespaces it uses (its own, plus any shared ones), commit this .mcp.json at its root, with your namespaces in x-honed-namespaces, and set HONED_TOKEN in each person's environment:
+> For a repo's sessions to read its own skills, commit this .mcp.json at its root, with the namespaces it uses (its own, plus any shared ones) in x-honed-namespaces, and set HONED_TOKEN in each person's environment:
 > {
 >   "mcpServers": {
 >     "honed": {

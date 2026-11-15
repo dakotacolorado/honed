@@ -1,7 +1,7 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { authorOf } from "./auth.ts";
-import { checkName, NAMESPACES_HEADER, OWN_NAMESPACE, Refusal, Scope, SKILL_FILE, type Caller } from "./domain.ts";
+import { NAMESPACES_HEADER, OWN_NAMESPACE, Refusal, Scope, SKILL_FILE, type Caller } from "./domain.ts";
 import type { Hub } from "./hub.ts";
 
 /** When an agent reports on a skill: two things it can tell happened, not a judgment of how the skill did. */
@@ -11,7 +11,8 @@ export const INSTRUCTIONS = `honed is your organization's shared skills library,
 
 - Before a task, search_skills for what it is about (or list_skills), and get_skill any whose description fits. Follow what you read.
 - ${TRIGGER} Use submit_feedback: quote is the skill's exact text, evidence the file as it is now or the command and what it printed, what_changed what you did or changed. Otherwise send nothing. Include files when you know the exact fix. Never include secrets or personal details.
-- To add a skill, read honed/skill-writing first, then submit_feedback under the new name with a draft of its ${SKILL_FILE}.`;
+- To add a skill, read honed/skill-writing first, then submit_feedback under the new name with a draft of its ${SKILL_FILE}.
+- submit_feedback takes a report on any skill, by its name, whichever namespaces this session sees: report on the skills you were started with too.`;
 
 /** The most skills the instructions name; the rest are a list_skills away. */
 const LISTED = 100;
@@ -30,14 +31,14 @@ export function mcpJson(origin: string, namespaces: string[]): string {
   return JSON.stringify(config, null, 2);
 }
 
-/** The instructions for one connection: how to use honed, then which skills it is bound to, or how to bind its repo. */
+/** The instructions for one connection: how to use honed, then which skills it reads, or how to bind its repo to read its own. */
 export function instructions(hub: Hub, scope: Scope, origin: string): string {
   const skills = hub.list(scope.prefixes);
   const listed = skills.slice(0, LISTED).map((s) => `- ${s.name}: ${s.description}`).join("\n");
   const more = skills.length > LISTED ? `\n- …and ${skills.length - LISTED} more: list_skills to see them all.` : "";
   const binding = scope.bound
     ? `This repo is bound to ${scope.namespaces.map((n) => `${n}/`).join(", ")} (and honed's own ${OWN_NAMESPACE}/). Its skills:\n${listed || "- none yet"}${more}`
-    : `This session's repo is bound to no namespace, so it sees only honed's own ${OWN_NAMESPACE}/ skills:\n${listed || "- none"}${more}\n\nTo bind a repo to the namespaces it uses (its own, plus any shared ones), commit this .mcp.json at its root, with your namespaces in ${NAMESPACES_HEADER}, and set HONED_TOKEN in each person's environment:\n${mcpJson(origin, ["your-project", "shared"])}`;
+    : `This session's repo is bound to no namespace, so it sees only honed's own ${OWN_NAMESPACE}/ skills:\n${listed || "- none"}${more}\n\nFor a repo's sessions to read its own skills, commit this .mcp.json at its root, with the namespaces it uses (its own, plus any shared ones) in ${NAMESPACES_HEADER}, and set HONED_TOKEN in each person's environment:\n${mcpJson(origin, ["your-project", "shared"])}`;
   return `${INSTRUCTIONS}\n\n${binding}`;
 }
 
@@ -142,13 +143,6 @@ export function mcpServer(hub: Hub, version: string, caller: Caller, local: bool
     },
     ({ name, quote, evidence, what_changed, feedback, files, author }) =>
       answer(async () => {
-        if (!scope.sees(checkName(name))) {
-          throw new Refusal(
-            scope.bound
-              ? `${name} is outside the namespaces this repo is bound to (${scope.namespaces.map((n) => `${n}/`).join(", ")}): name a skill under one of them`
-              : `this session's repo is bound to no namespace, so it can report only on honed's own ${OWN_NAMESPACE}/ skills: bind the repo as your instructions say`,
-          );
-        }
         const { next } = await hub.submitFeedback({ skill: name, quote, evidence, whatChanged: what_changed, text: feedback, files, author: authorOf(caller, local, author) });
         if (next.kind === "off") return "Recorded. Revision is off on this server, so it will be read by a person.";
         if (next.kind === "protected") return `Recorded. ${name} is protected: a revision from feedback is kept only once an admin approves it, and until then you read it as it is.`;

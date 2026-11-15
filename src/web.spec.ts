@@ -227,8 +227,9 @@ describe("a connection's namespaces", () => {
       assert.equal(got.isError, true);
       assert.equal(got.value, `no skill is named ${hidden}`, "answered as if it did not exist");
     }
-    const refused = await call(client, "submit_feedback", { name: "billing/invoices", quote: "description: About billing/invoices.", evidence: [{ command: "c", output: "o" }], what_changed: "w" });
-    assert.match(refused.value, /outside the namespaces this repo is bound to \(workplace-ui\/, ux\/\)/);
+    const outside = await call(client, "submit_feedback", { name: "billing/invoices", quote: "description: About billing/invoices.", evidence: [{ command: "c", output: "o" }], what_changed: "w" });
+    assert.equal(outside.isError, false, "a skill in another namespace can be reported on");
+    assert.match(outside.value, /^Recorded\./);
     const told = client.getInstructions() ?? "";
     assert.match(told, /bound to workplace-ui\/, ux\/ \(and honed's own honed\/\)/);
     for (const name of seen) assert.match(told, new RegExp(`- ${name}: About ${name}\\.`));
@@ -236,7 +237,7 @@ describe("a connection's namespaces", () => {
     await client.close();
   });
 
-  test("unbound, it sees only honed/ skills, and its instructions say how to bind the repo", async () => {
+  test("unbound, it sees only honed/ skills, and its instructions say how to bind the repo and that it reports on any skill", async () => {
     const client = await connect(s.base, undefined, null);
     assert.deepEqual((await call(client, "list_skills")).value.map((k: { name: string }) => k.name), ["honed/skill-writing"]);
     assert.deepEqual((await call(client, "search_skills", { query: "shared" })).value.map((k: { name: string }) => k.name), ["honed/skill-writing"]);
@@ -246,7 +247,24 @@ describe("a connection's namespaces", () => {
     assert.match(told, /"X-Honed-Namespaces": "your-project, shared"/);
     assert.match(told, /"Authorization": "Bearer \$\{HONED_TOKEN\}"/);
     assert.match(told, new RegExp(`"url": "${s.base}/mcp"`));
-    assert.match((await call(client, "submit_feedback", { name: "ux/new-one", feedback: "f", files: md("ux/new-one") })).value, /bound to no namespace/);
+    assert.match(told, /takes a report on any skill, by its name, whichever namespaces this session sees/);
+    assert.doesNotMatch(told, /bind the repo as/);
+    await client.close();
+  });
+
+  test("unbound, it reports on any existing skill, asks for new ones anywhere, and a wrong quote is still refused", async () => {
+    const client = await connect(s.base, undefined, null);
+    const report = { quote: "description: About workplace-ui/forms.", evidence: [{ command: "c", output: "o" }], what_changed: "w" };
+    const taken = await call(client, "submit_feedback", { name: "workplace-ui/forms", ...report });
+    assert.equal(taken.isError, false);
+    assert.match(taken.value, /^Recorded\. The honer is judging it now/);
+    const asked = await call(client, "submit_feedback", { name: "ux/new-one", feedback: "f", files: md("ux/new-one") });
+    assert.equal(asked.isError, false);
+    assert.match(asked.value, /^Recorded\. The new skill ux\/new-one is being considered now\./);
+    const wrong = await call(client, "submit_feedback", { name: "workplace-ui/forms", ...report, quote: "Text this skill never had in it." });
+    assert.equal(wrong.isError, true);
+    assert.match(wrong.value, /this text is not in workplace-ui\/forms as it is now/);
+    await s.hub.idle();
     await client.close();
   });
 
