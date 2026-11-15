@@ -119,6 +119,11 @@ export class Store {
       const has = (this.db.prepare(`PRAGMA table_info(${table})`).all() as Row[]).some((r) => r.name === column);
       if (!has) this.db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
     }
+    // Reports were once sorted checkable or judgment, a judgment call held until separate sessions agreed. Each is now
+    // accepted or declined at once: a held one is unsorted again, to be decided anew, and the rest keep what came of them.
+    this.db.exec(`UPDATE feedback SET sort = NULL, sort_why = NULL, sorted_by = NULL WHERE sort = 'judgment' AND judgment IS NULL;
+      UPDATE feedback SET sort = 'accepted' WHERE sort = 'checkable';
+      UPDATE feedback SET sort = 'declined' WHERE sort = 'judgment';`);
   }
 
   close() {
@@ -233,12 +238,8 @@ export class Store {
     return this.all("SELECT * FROM feedback WHERE judgment IS NULL AND sort IS NULL AND skill = ? ORDER BY at", name).map(feedback);
   }
   /** Records how a judgment sorted a report, and why. */
-  sortFeedback(id: string, sort: "checkable" | "judgment", sortWhy: string, judgment: string): void {
+  sortFeedback(id: string, sort: "accepted" | "declined", sortWhy: string, judgment: string): void {
     this.run("UPDATE feedback SET sort = ?, sort_why = ?, sorted_by = ? WHERE id = ?", sort, sortWhy, judgment, id);
-  }
-  /** Reports a judgment sorted as judgment and held back, oldest first. */
-  heldBy(judgment: string): Feedback[] {
-    return this.all("SELECT * FROM feedback WHERE sorted_by = ? AND judgment IS NULL ORDER BY at", judgment).map(feedback);
   }
   /** Whether any agent has ever submitted feedback: until one has, nothing has connected. */
   anyFeedback(): boolean {
