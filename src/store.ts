@@ -1,5 +1,5 @@
 import { DatabaseSync } from "node:sqlite";
-import type { DraftFile, Evidence, Feedback, Judgment, PendingRevision, Review, Skill, SkillFile, Version } from "./domain.ts";
+import type { DraftFile, Evidence, Feedback, Judgment, PendingRevision, Review, Skill, SkillFile, SkillKind, Sort, Version } from "./domain.ts";
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS skills (name TEXT PRIMARY KEY, version INTEGER NOT NULL, created_at TEXT NOT NULL);
@@ -38,6 +38,8 @@ const COLUMNS: { table: string; column: string; definition: string }[] = [
   { table: "feedback", column: "sorted_by", definition: "TEXT" },
   { table: "skills", column: "protected", definition: "INTEGER NOT NULL DEFAULT 0" },
   { table: "judgments", column: "review", definition: "TEXT" },
+  { table: "skills", column: "kind", definition: "TEXT NOT NULL DEFAULT 'hard'" },
+  { table: "skills", column: "report_window", definition: "INTEGER" },
 ];
 
 export interface Token {
@@ -72,7 +74,7 @@ const n = (v: unknown) => Number(v);
 const sn = (v: unknown) => (v === null || v === undefined ? null : String(v));
 const nn = (v: unknown) => (v === null || v === undefined ? null : Number(v));
 
-const skill = (r: Row): Skill => ({ name: s(r.name), version: n(r.version), createdAt: s(r.created_at), maxChars: nn(r.max_chars), protected: n(r.protected) === 1 });
+const skill = (r: Row): Skill => ({ name: s(r.name), version: n(r.version), createdAt: s(r.created_at), maxChars: nn(r.max_chars), protected: n(r.protected) === 1, kind: (s(r.kind ?? "hard") === "soft" ? "soft" : "hard") as SkillKind, window: nn(r.report_window) });
 const pending = (r: Row): PendingRevision => ({ judgment: s(r.judgment), skill: s(r.skill), version: n(r.version), note: s(r.note), files: JSON.parse(s(r.files)) as SkillFile[], at: s(r.at) });
 const version = (r: Row): Version => ({ skill: s(r.skill), version: n(r.version), commit: s(r.commit_id), note: s(r.note), judgment: s(r.judgment), at: s(r.at) });
 const feedback = (r: Row): Feedback => ({
@@ -161,11 +163,18 @@ export class Store {
     return r && skill(r);
   }
   /** Makes a skill, or moves it to a new version; its limit and protection stay as an admin set them. */
-  putSkill(v: Omit<Skill, "maxChars" | "protected">): void {
+  putSkill(v: Omit<Skill, "maxChars" | "protected" | "kind" | "window">): void {
     this.run("INSERT INTO skills (name, version, created_at) VALUES (?, ?, ?) ON CONFLICT (name) DO UPDATE SET version = excluded.version", v.name, v.version, v.createdAt);
   }
   setMaxChars(name: string, maxChars: number | null): void {
     this.run("UPDATE skills SET max_chars = ? WHERE name = ?", maxChars, name);
+  }
+
+  setKind(name: string, kind: SkillKind): void {
+    this.run("UPDATE skills SET kind = ? WHERE name = ?", kind, name);
+  }
+  setWindow(name: string, window: number | null): void {
+    this.run("UPDATE skills SET report_window = ? WHERE name = ?", window, name);
   }
 
   setProtected(name: string, value: boolean): void {
@@ -211,8 +220,22 @@ export class Store {
       : this.all("SELECT * FROM feedback WHERE judgment IS NULL ORDER BY at")
     ).map(feedback);
   }
+  /** The feedback a judgment considered, and on a soft skill the held reports it accepted later. */
   feedbackOf(judgment: string): Feedback[] {
-    return this.all("SELECT * FROM feedback WHERE judgment = ? ORDER BY at", judgment).map(feedback);
+    return this.all("SELECT * FROM feedback WHERE judgment = ? OR (sorted_by = ? AND sort = 'accepted') ORDER BY at", judgment, judgment).map(feedback);
+  }
+  /**
+   * A soft skill's window: its latest `size` reports, sorted or not, and any still unsorted before them; oldest first.
+   * Feedback a judgment considered without sorting (the request that made the skill, say) is not a report, and stays out.
+   */
+  window(name: string, size: number): Feedback[] {
+    const reports = "skill = ? AND NOT (sort IS NULL AND judgment IS NOT NULL)";
+    return this.all(
+      `SELECT * FROM feedback WHERE ${reports} AND (sort IS NULL OR id IN (SELECT id FROM feedback WHERE ${reports} ORDER BY at DESC LIMIT ?)) ORDER BY at`,
+      name,
+      name,
+      size,
+    ).map(feedback);
   }
   addFeedback(f: Feedback): void {
     this.run(
@@ -238,7 +261,7 @@ export class Store {
     return this.all("SELECT * FROM feedback WHERE judgment IS NULL AND sort IS NULL AND skill = ? ORDER BY at", name).map(feedback);
   }
   /** Records how a judgment sorted a report, and why. */
-  sortFeedback(id: string, sort: "accepted" | "declined", sortWhy: string, judgment: string): void {
+  sortFeedback(id: string, sort: Sort, sortWhy: string, judgment: string): void {
     this.run("UPDATE feedback SET sort = ?, sort_why = ?, sorted_by = ? WHERE id = ?", sort, sortWhy, judgment, id);
   }
   /** Whether any agent has ever submitted feedback: until one has, nothing has connected. */

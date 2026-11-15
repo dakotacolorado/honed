@@ -8,10 +8,13 @@ import {
   checkName,
   checkSkill,
   DEFAULT_MAX_CHARS,
+  DEFAULT_WINDOW,
+  isHoner,
   frontmatter,
   HONER_AUTHOR,
   prefixOf,
   HONER_SKILL,
+  SOFT_HONER_SKILL,
   WRITING_SKILL,
   JUDGMENT_ATTEMPTS,
   MAX_EVIDENCE,
@@ -33,6 +36,8 @@ import {
   type PendingRevision,
   type Skill,
   type SkillFile,
+  type SkillKind,
+  type Sort,
 } from "./domain.ts";
 import type { Case, Decision, Judge } from "./judge.ts";
 import { Library } from "./library.ts";
@@ -53,6 +58,8 @@ export interface SkillSummary {
   protected: boolean;
   /** Whether a revision of it is waiting for an admin now. */
   pending: boolean;
+  /** hard: each report decided at once. soft: judged on patterns across its latest reports. */
+  kind: SkillKind;
   updatedAt: string;
 }
 
@@ -66,6 +73,7 @@ export type Next =
   | { kind: "revising" }
   | { kind: "admin" }
   | { kind: "protected" }
+  | { kind: "soft"; protected: boolean }
   | { kind: "off" };
 
 export interface HubOptions {
@@ -78,7 +86,10 @@ export interface HubOptions {
 
 const ANONYMOUS = "an unnamed agent";
 
-/** What an agent sends: a report on a skill (quote, evidence, what changed), or a request for a new one (text and a draft). */
+/**
+ * What an agent sends: a report on a skill (quote, evidence, what changed), an observation on a soft skill (text, with
+ * a quote and evidence if it has them), or a request for a new one (text and a draft).
+ */
 export interface FeedbackInput {
   skill: string;
   quote?: string;
@@ -182,16 +193,18 @@ export class Hub {
    */
   private async seed(starters: boolean): Promise<void> {
     if (!starters) return;
-    const shipped = await readStarter(HONER_SKILL);
-    const honer = this.store.skill(HONER_SKILL);
-    const last = honer ? this.store.version(HONER_SKILL, honer.version) : undefined;
-    if (honer && last && this.store.judgment(last.judgment)?.by === "starter" && !sameFiles(await this.current(HONER_SKILL), shipped)) {
-      const j = this.started(HONER_SKILL, "starter");
-      j.reasoning = "The guidance this release of honed ships, in place of the one an earlier release shipped, which no one had changed.";
-      j.version = await this.commit(HONER_SKILL, shipped, "Shipped with honed (this release's guidance)", j);
-      this.finish(j, true, []);
+    for (const name of [HONER_SKILL, SOFT_HONER_SKILL]) {
+      const shipped = await readStarter(name);
+      const honer = this.store.skill(name);
+      const last = honer ? this.store.version(name, honer.version) : undefined;
+      if (honer && last && this.store.judgment(last.judgment)?.by === "starter" && !sameFiles(await this.current(name), shipped)) {
+        const j = this.started(name, "starter");
+        j.reasoning = "The guidance this release of honed ships, in place of the one an earlier release shipped, which no one had changed.";
+        j.version = await this.commit(name, shipped, "Shipped with honed (this release's guidance)", j);
+        this.finish(j, true, []);
+      }
     }
-    const names = this.store.meta("seeded") ? [HONER_SKILL] : await starterNames();
+    const names = this.store.meta("seeded") ? [HONER_SKILL, SOFT_HONER_SKILL] : await starterNames();
     for (const name of names) {
       if (this.store.skill(name)) continue;
       const files = await readStarter(name);
@@ -209,9 +222,9 @@ export class Hub {
     return body((await this.current(name)).find((f) => f.path === SKILL_FILE)?.content ?? "");
   }
 
-  /** The honer's guidance: honed/honer's current SKILL.md, without its frontmatter. */
-  guidance(): Promise<string> {
-    return this.bodyOf(HONER_SKILL);
+  /** The honer's guidance: honed/honer's current SKILL.md, without its frontmatter; honed/soft-honer's for a soft skill. */
+  guidance(kind: SkillKind = "hard"): Promise<string> {
+    return this.bodyOf(kind === "soft" ? SOFT_HONER_SKILL : HONER_SKILL);
   }
 
   /** One write at a time, so each version is made from the version it read. */
@@ -242,6 +255,7 @@ export class Hub {
       waiting: this.store.waiting(s.name).length,
       protected: s.protected,
       pending: this.store.pending(s.name) !== undefined,
+      kind: s.kind,
       updatedAt: this.store.version(s.name, s.version)?.at ?? s.createdAt,
     };
   }
@@ -306,10 +320,19 @@ export class Hub {
     const draft = checkDraft(input.files ?? []);
     const current = await this.current(name);
     const exists = this.store.skill(name) !== undefined;
+    const soft = this.store.skill(name)?.kind === "soft";
     let quote: string | null = null;
     let evidence: Evidence[] = [];
     let whatChanged: string | null = null;
-    if (exists) {
+    if (soft) {
+      // On a soft skill an observation is enough; a quote, evidence or what changed, when sent, is checked as for any report.
+      quote = (input.quote ?? "").trim() || null;
+      if (!quote && !text) throw new Refusal(`an observation on ${name} needs feedback: what you saw the person do or say, in a sentence or two`);
+      if (quote && quote.length < MIN_QUOTE) throw new Refusal(`"${quote}" is too short to say which text it is about: quote the whole sentence or line from ${name}, or leave quote out`);
+      if (quote && !quoted(quote, current)) throw new Refusal(`this text is not in ${name} as it is now (v${this.store.skill(name)!.version}); get_skill it again and quote it exactly, or leave quote out: "${quote.slice(0, 200)}"`);
+      evidence = input.evidence?.length ? checkEvidence(input.evidence) : [];
+      whatChanged = (input.whatChanged ?? "").trim() || null;
+    } else if (exists) {
       quote = (input.quote ?? "").trim();
       if (!quote) throw new Refusal(`a report on ${name} needs quote: the exact text in the skill that is wrong or out of date, copied from get_skill`);
       if (quote.length < MIN_QUOTE) throw new Refusal(`"${quote}" is too short to say which text is wrong: quote the whole sentence or line from ${name}`);
@@ -345,8 +368,10 @@ export class Hub {
 
   private next(name: string, drafted: boolean): Next {
     if (!this.judge) return { kind: "off" };
-    if (name === HONER_SKILL) return { kind: "admin" };
-    if (this.store.skill(name)?.protected) return { kind: "protected" };
+    if (isHoner(name)) return { kind: "admin" };
+    const skill = this.store.skill(name);
+    if (skill?.kind === "soft") return { kind: "soft", protected: skill.protected };
+    if (skill?.protected) return { kind: "protected" };
     return { kind: "revising" };
   }
 
@@ -397,7 +422,7 @@ export class Hub {
   /** Takes a skill out of the library and search. Its history stays in git and its feedback on record; waiting feedback is closed by the deletion, so it cannot bring the skill back. */
   delete(name: string, reason: string, actor = "you"): Promise<Judgment> {
     return this.exclusive(async () => {
-      if (name === HONER_SKILL) throw new Refusal(`${HONER_SKILL} is how honed revises every skill, so it cannot be deleted; revert or edit it instead`, 409);
+      if (isHoner(name)) throw new Refusal(`${name} is how honed revises ${name === HONER_SKILL ? "every" : "every soft"} skill, so it cannot be deleted; revert or edit it instead`, 409);
       const skill = this.skill(name);
       const j = this.started(name, "person", actor);
       j.reasoning = reason.trim() || `Deleted at version ${skill.version}.`;
@@ -425,6 +450,31 @@ export class Hub {
     this.skill(name);
     if (maxChars !== null && (!Number.isInteger(maxChars) || maxChars < 1)) throw new Refusal("a limit is a whole number of characters, at least 1; leave it empty for the library's default");
     this.store.setMaxChars(name, maxChars);
+    return this.skill(name);
+  }
+
+  /**
+   * An admin's choice of how a skill is judged: hard (each report decided at once, the default) or soft (on patterns
+   * across its latest reports). The honers' own guidance is always hard.
+   */
+  setKind(name: string, kind: string): Skill {
+    this.skill(name);
+    if (kind !== "hard" && kind !== "soft") throw new Refusal("kind must be hard or soft");
+    if (isHoner(name) && kind !== "hard") throw new Refusal(`${name} is the honer's own guidance, revised only when an admin asks: it stays hard`, 409);
+    this.store.setKind(name, kind);
+    return this.skill(name);
+  }
+
+  /** How many of a soft skill's latest reports each judgment sees, or null for the default. */
+  window(name: string): number {
+    return this.store.skill(name)?.window ?? DEFAULT_WINDOW;
+  }
+
+  /** An admin's window on one skill: how many of its latest reports a soft judgment sees; null for the default. */
+  setWindow(name: string, window: number | null): Skill {
+    this.skill(name);
+    if (window !== null && (!Number.isInteger(window) || window < 1 || window > 200)) throw new Refusal("a window is a whole number of reports, from 1 to 200; leave it empty for the default (20)");
+    this.store.setWindow(name, window);
     return this.skill(name);
   }
 
@@ -535,7 +585,7 @@ export class Hub {
   schedule(name: string, force = false): void {
     if (!this.judge) return;
     // The honer does not revise its own guidance on its own: feedback on it waits for an admin.
-    if (name === HONER_SKILL && !force) return;
+    if (isHoner(name) && !force) return;
     // A protected skill is revised again only once an admin has decided on the revision it holds.
     if (this.store.pending(name)) return;
     if (this.running.has(name)) {
@@ -554,6 +604,7 @@ export class Hub {
   /** Feedback not yet sorted is judged at once; an admin's ask judges a skill whatever is waiting. */
   private due(c: Case, force: boolean): boolean {
     if (force) return c.files.length > 0;
+    if (c.kind === "soft") return c.feedback.some((f) => f.sort === null);
     return c.feedback.length > 0;
   }
 
@@ -566,14 +617,17 @@ export class Hub {
 
   /** The case for a skill: its feedback no judgment has decided, or, when an admin asks, everything waiting. */
   private async gather(name: string, failure: string | null, approved = false): Promise<Case> {
-    const version = this.store.skill(name)?.version ?? 0;
+    const skill = this.store.skill(name);
+    const version = skill?.version ?? 0;
+    const soft = skill?.kind === "soft";
     return {
       skill: name,
       version,
       maxChars: this.limit(name),
       files: await this.files(name, version),
       others: this.neighbours(name),
-      feedback: approved ? this.store.waiting(name) : this.store.unsorted(name),
+      feedback: soft ? this.store.window(name, this.window(name)) : approved ? this.store.waiting(name) : this.store.unsorted(name),
+      ...(soft ? { kind: "soft" as const, window: this.window(name) } : {}),
       approved,
       precedent: this.store
         .judgments(name, PRECEDENT * 2)
@@ -581,7 +635,7 @@ export class Hub {
         .slice(0, PRECEDENT)
         .map((j) => ({ ...j, feedback: this.store.feedbackOf(j.id) })),
       failure,
-      guidance: await this.guidance(),
+      guidance: await this.guidance(soft ? "soft" : "hard"),
       writingGuide: version === 0 ? await this.bodyOf(WRITING_SKILL) || null : null,
     };
   }
@@ -654,17 +708,19 @@ export class Hub {
         if (s) this.store.sortFeedback(f.id, s.kind, s.why, j.id);
       }
     });
-    // Every report is decided now, accepted or declined: none is held for others to agree.
+    // On a hard skill every report is decided now, accepted or declined. On a soft one a held report stays in the
+    // window, considered: it waits for the next report, not for a judgment of its own.
     const considered = c.feedback.map((f) => f.id);
     if (change && protect) this.hold(c, j, change, considered);
     else this.finish(j, d.changed, considered);
     // One level of self-review: the honer may give feedback on its guidance while revising any other skill, never while revising its guidance.
     const reflection = d.honer_feedback.trim();
-    if (reflection && c.skill !== HONER_SKILL && this.store.skill(HONER_SKILL)) {
+    const honer = c.kind === "soft" ? SOFT_HONER_SKILL : HONER_SKILL;
+    if (reflection && !isHoner(c.skill) && this.store.skill(honer)) {
       this.store.addFeedback({
         id: newId(),
-        skill: HONER_SKILL,
-        version: this.store.skill(HONER_SKILL)!.version,
+        skill: honer,
+        version: this.store.skill(honer)!.version,
         text: reflection,
         quote: null,
         evidence: [],
@@ -684,12 +740,14 @@ class Outdated extends Error {}
  * How the judge decided each report in the case, refusing a decision that leaves one undecided, names one not in the
  * case, or revises an existing skill while declining every report, unless an admin asked.
  */
-function checkSorts(c: Case, d: Decision): Map<string, { kind: "accepted" | "declined"; why: string }> {
+function checkSorts(c: Case, d: Decision): Map<string, { kind: Sort; why: string }> {
+  if (c.kind === "soft") return checkSoftSorts(c, d);
   const byShort = new Map(c.feedback.map((f) => [f.id.slice(0, 8), f]));
-  const sorts = new Map<string, { kind: "accepted" | "declined"; why: string }>();
+  const sorts = new Map<string, { kind: Sort; why: string }>();
   for (const s of d.sorted) {
     const f = byShort.get(s.report.trim().slice(0, 8));
     if (!f) throw new Refusal(`sorted names report ${s.report}, which is not in this case: sort only the reports in <new_feedback>, by their id`);
+    if (s.kind === "held") throw new Refusal(`report ${s.report} is sorted held, but ${c.skill} is a hard skill: decide every report as accepted or declined, now`);
     sorts.set(f.id, { kind: s.kind, why: s.why.trim() });
   }
   const reports = c.feedback.filter((f) => f.quote !== null);
@@ -699,6 +757,30 @@ function checkSorts(c: Case, d: Decision): Map<string, { kind: "accepted" | "dec
     const changes = d.changed || d.revert_to !== 0;
     if (changes && c.files.length > 0 && reports.length > 0 && !reports.some((f) => sorts.get(f.id)?.kind === "accepted")) {
       throw new Refusal("you declined every report here, so nothing calls for a change: leave the skill unchanged, or accept the report the change comes from");
+    }
+  }
+  return sorts;
+}
+
+/**
+ * How the judge sorted a soft skill's window: every new report decided, a held one decided again or left held, none
+ * already accepted or declined sorted again, and no change without a report accepted for it, unless an admin asked.
+ */
+function checkSoftSorts(c: Case, d: Decision): Map<string, { kind: Sort; why: string }> {
+  const byShort = new Map(c.feedback.map((f) => [f.id.slice(0, 8), f]));
+  const sorts = new Map<string, { kind: Sort; why: string }>();
+  for (const s of d.sorted) {
+    const f = byShort.get(s.report.trim().slice(0, 8));
+    if (!f) throw new Refusal(`sorted names report ${s.report}, which is not in this case: sort only the reports in <window>, by their id`);
+    if (f.sort === "accepted" || f.sort === "declined") throw new Refusal(`report ${s.report} was ${f.sort} before and is closed: sort only new reports and held ones`);
+    sorts.set(f.id, { kind: s.kind, why: s.why.trim() });
+  }
+  if (!c.approved) {
+    const missing = c.feedback.filter((f) => f.sort === null && !sorts.has(f.id));
+    if (missing.length) throw new Refusal(`decide every new report as accepted, declined or held, with why: ${missing.map((f) => f.id.slice(0, 8)).join(", ")} ${missing.length === 1 ? "is" : "are"} not decided`);
+    const changes = d.changed || d.revert_to !== 0;
+    if (changes && c.files.length > 0 && ![...sorts.values()].some((s) => s.kind === "accepted")) {
+      throw new Refusal("you accepted no report here, so nothing calls for a change: hold the reports and leave the skill unchanged, or accept the reports whose pattern the change comes from");
     }
   }
   return sorts;

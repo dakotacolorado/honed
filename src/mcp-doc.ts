@@ -95,6 +95,14 @@ const CONNECT = [
   "A refusal comes back as the tool's error, in the server's words.",
 ];
 
+/** What a reporter needs to know of a skill's kind. */
+const KINDS = [
+  "Most skills are hard: facts an agent can check, such as a command, a path or a process. A report on one quotes the",
+  "skill's text, shows the evidence and says what changed, and is decided at once. A soft skill (`get_skill` says",
+  "`kind: soft`) records something no one report settles, such as a person's taste. A report on it may be an observation",
+  "alone, in `feedback`. It is held to weigh with other sessions' reports, and the skill changes once they agree on a pattern.",
+];
+
 /** `docs/MCP.md`: how to connect, the server's instructions, then each tool and its input. */
 export function renderMcp(doc: McpDocument): string {
   const lines = [
@@ -118,6 +126,10 @@ export function renderMcp(doc: McpDocument): string {
     "",
     "The contract is [`mcp.json`](../mcp.json); a running honed serves it at `/mcp.json` and this page at `/docs/mcp`.",
     "Its JSON API is described in [`API.md`](./API.md).",
+    "",
+    "## Hard and soft skills",
+    "",
+    ...KINDS,
     "",
     "## Instructions",
     "",
@@ -175,6 +187,8 @@ blockquote{white-space:pre-wrap;margin:0}table{border-collapse:collapse;width:10
 <p>Claude Code connects with the honed plugin (<code>claude plugin install honed@honed</code>), which also asks each session for feedback. A repo binds its sessions to its namespaces by committing a <code>.mcp.json</code> at its root, with each person's token in <code>HONED_TOKEN</code> in their environment (on a honed with no tokens, leave out <code>Authorization</code>):</p>
 <pre>${esc(config)}</pre>
 <p>The contract is <a href="../mcp.json"><code>mcp.json</code></a>; the JSON API's docs are <a href="./api">here</a>.</p>
+<h2>Hard and soft skills</h2>
+<p>${inline(KINDS.join(" "))}</p>
 <h2>Instructions</h2><p>What the server tells an agent when it connects. The first part is the same for every session; the rest names the skills the session is bound to. Here, as a session bound to no namespace sees it, on an empty library:</p><blockquote>${esc(doc.instructions)}</blockquote>
 <h2>Tools</h2><ul>${index}</ul>
 ${tools}

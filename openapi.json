@@ -2,8 +2,8 @@
   "openapi": "3.1.0",
   "info": {
     "title": "honed",
-    "version": "0.6.3",
-    "description": "honed keeps your organization's skills: the instructions coding agents read before a task, such as how a team writes commits or reviews code. When a skill turns out to be wrong, the agent that hit it reports it, and honed revises the skill from those reports, keeping every version and why it changed.\n\nThis API is how honed's web page, or a script of yours, reads the library: each skill with its files, versions and feedback, and why it changed. It is also how an admin edits, reverts or deletes a skill by hand. Agents don't use it: they use the MCP server at `/mcp` (docs at `/docs/mcp`).\n\n## Tokens\n\nA honed with no tokens, started on this machine alone, is local: it answers only requests naming `127.0.0.1`, `localhost` or `[::1]` as their host, needs no token, and treats every caller as an admin.\n\nThe first token (`honed token create <name> [--admin]`) makes it shared at once: from then on every request but this contract and the docs carries one, as `Authorization: Bearer honed_…` or as the `honed_token` cookie that signing in on the page sets. A honed started on another host (`--host 0.0.0.0`) is shared from the start.\n\n## Writes\n\nEvery write is a `POST` that carries the `x-honed: 1` header, so a cross-site form cannot make one, and takes an admin token. Each is kept as a version of the skill, recorded as a judgment by a person, with the reason given.\n\n## Errors\n\nA refusal answers `{ \"error\": \"…\" }` in words a person can act on, with its status: 400 for a request that cannot be done as asked, 401 for a missing or unknown token, 403 for a write without the header or an admin token (or a local honed asked under another host name), 404 for a skill, version or judgment that does not exist, and 409 for a change that conflicts with the skill as it is.",
+    "version": "0.6.4",
+    "description": "honed keeps your organization's skills: the instructions coding agents read before a task, such as how a team writes commits or reviews code. When a skill turns out to be wrong, the agent that hit it reports it, and honed revises the skill from those reports, keeping every version and why it changed.\n\nThis API is how honed's web page, or a script of yours, reads the library: each skill with its files, versions and feedback, and why it changed. It is also how an admin edits, reverts or deletes a skill by hand. Agents don't use it: they use the MCP server at `/mcp` (docs at `/docs/mcp`).\n\n## Hard and soft skills\n\nEvery skill is `hard` unless an admin makes it `soft` (`POST /api/skills/{name}/kind`). A hard skill holds facts an agent can check, such as a command, a path or a process: a report quotes its text and shows evidence, and the judge accepts or declines each report at once. A soft skill holds something no one report settles, such as a person's taste. A report on it may be an observation alone. Each judgment sees the skill's latest reports, its window (20 unless set with `POST /api/skills/{name}/window`), with how each was sorted before. It holds a report until reports from separate sessions agree on a pattern, or the person says it outright, and declines a pattern the window contradicts. `honed/soft-honer` guides how.\n\n## Tokens\n\nA honed with no tokens, started on this machine alone, is local: it answers only requests naming `127.0.0.1`, `localhost` or `[::1]` as their host, needs no token, and treats every caller as an admin.\n\nThe first token (`honed token create <name> [--admin]`) makes it shared at once: from then on every request but this contract and the docs carries one, as `Authorization: Bearer honed_…` or as the `honed_token` cookie that signing in on the page sets. A honed started on another host (`--host 0.0.0.0`) is shared from the start.\n\n## Writes\n\nEvery write is a `POST` that carries the `x-honed: 1` header, so a cross-site form cannot make one, and takes an admin token. Each is kept as a version of the skill, recorded as a judgment by a person, with the reason given.\n\n## Errors\n\nA refusal answers `{ \"error\": \"…\" }` in words a person can act on, with its status: 400 for a request that cannot be done as asked, 401 for a missing or unknown token, 403 for a write without the header or an admin token (or a local honed asked under another host name), 404 for a skill, version or judgment that does not exist, and 409 for a change that conflicts with the skill as it is.",
     "license": {
       "name": "MIT"
     }
@@ -122,6 +122,14 @@
             "type": "boolean",
             "description": "Whether a revision of it is waiting for an admin now."
           },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "hard",
+              "soft"
+            ],
+            "description": "How it is judged: `hard`, each report decided at once, or `soft`, on patterns across its latest reports."
+          },
           "updatedAt": {
             "type": "string",
             "description": "ISO 8601, UTC.",
@@ -138,6 +146,7 @@
           "waiting",
           "protected",
           "pending",
+          "kind",
           "updatedAt"
         ]
       },
@@ -180,6 +189,21 @@
             "type": "boolean",
             "description": "Set by an admin: a revision the honer makes from feedback waits for an admin's approval before it is kept, and agents read the current version meanwhile."
           },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "hard",
+              "soft"
+            ],
+            "description": "Set by an admin. `hard` (the default): facts an agent can check, such as a command, a path or a process; each report is decided at once, and must quote the skill's text with evidence. `soft`: something no one report settles, such as a person's taste; a report may be an observation alone, is held in the skill's window, and the skill changes once reports from separate sessions agree on a pattern."
+          },
+          "window": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "description": "For a soft skill, how many of its latest reports each judgment sees, set by an admin; null for the default (20)."
+          },
           "pending": {
             "$ref": "#/components/schemas/PendingRevision"
           },
@@ -211,6 +235,8 @@
           "createdAt",
           "maxChars",
           "protected",
+          "kind",
+          "window",
           "pending",
           "files",
           "versions",
@@ -425,9 +451,10 @@
             "enum": [
               "accepted",
               "declined",
+              "held",
               null
             ],
-            "description": "How the judge decided it: accepted (acted on) or declined (closed, with why); null until decided."
+            "description": "How the judge decided it: accepted (acted on), declined (closed, with why) or, on a soft skill, held (kept in its window to weigh with later reports); null until decided."
           },
           "sortWhy": {
             "type": [
@@ -706,6 +733,21 @@
           "protected": {
             "type": "boolean",
             "description": "Set by an admin: a revision the honer makes from feedback waits for an admin's approval before it is kept, and agents read the current version meanwhile."
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "hard",
+              "soft"
+            ],
+            "description": "Set by an admin. `hard` (the default): facts an agent can check, such as a command, a path or a process; each report is decided at once, and must quote the skill's text with evidence. `soft`: something no one report settles, such as a person's taste; a report may be an observation alone, is held in the skill's window, and the skill changes once reports from separate sessions agree on a pattern."
+          },
+          "window": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "description": "For a soft skill, how many of its latest reports each judgment sees, set by an admin; null for the default (20)."
           }
         },
         "required": [
@@ -713,7 +755,9 @@
           "version",
           "createdAt",
           "maxChars",
-          "protected"
+          "protected",
+          "kind",
+          "window"
         ]
       },
       "Limit": {
@@ -729,6 +773,38 @@
               }
             ],
             "description": "The limit in characters, at least 1. Empty or omitted for the library's default."
+          }
+        }
+      },
+      "Kind": {
+        "type": "object",
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "hard",
+              "soft"
+            ],
+            "description": "`hard` or `soft`."
+          }
+        },
+        "required": [
+          "kind"
+        ]
+      },
+      "Window": {
+        "type": "object",
+        "properties": {
+          "window": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "string"
+              }
+            ],
+            "description": "The number of reports, from 1 to 200. Empty or omitted for the default (20)."
           }
         }
       },
@@ -1472,11 +1548,231 @@
         }
       }
     },
+    "/api/skills/{name}/kind": {
+      "post": {
+        "operationId": "setSkillKind",
+        "summary": "Set skill kind",
+        "description": "How the judge treats the skill's feedback from now on. A hard skill (the default) holds facts an agent can check: each report quotes its text with evidence, and is accepted or declined at once. A soft skill holds something no one report settles, such as a person's taste: a report may be an observation alone, each judgment sees the skill's latest reports (its window) with how each was sorted, and the skill changes only once reports from separate sessions agree on a pattern, guided by `honed/soft-honer`. `honed/honer` and `honed/soft-honer` stay hard. Needs an admin token.",
+        "tags": [
+          "writes"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "cookieAuth": []
+          },
+          {}
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "pattern": "^(?:[a-z0-9]+(?:-[a-z0-9]+)*\\/)?[a-z0-9]+(?:-[a-z0-9]+)*$"
+            },
+            "required": true,
+            "name": "name",
+            "in": "path",
+            "description": "The skill's name, with its group prefix if it has one: `git-commits`, `team/code-review`. Its slash may be plain or escaped as `%2F`."
+          },
+          {
+            "schema": {
+              "type": "string",
+              "enum": [
+                "1"
+              ]
+            },
+            "required": true,
+            "name": "x-honed",
+            "in": "header",
+            "description": "Required on every write: a cross-site form cannot send it."
+          }
+        ],
+        "requestBody": {
+          "description": "The kind to set.",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Kind"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The skill, with its kind now.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Skill"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The change cannot be made as asked: the skill would break a rule (its frontmatter, a path, the cap), or a field is missing.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No token, or one this server did not issue, on a shared honed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "No `x-honed` header, a token that is not an admin's, or a local honed asked under another host name.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No skill has that name.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The skill is one of the honers' own guidance, which stays hard.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/skills/{name}/window": {
+      "post": {
+        "operationId": "setSkillWindow",
+        "summary": "Set report window",
+        "description": "How many of a soft skill's latest reports, sorted or not, each judgment of it sees; a report older than that drops out of the case but stays on record. Default 20. A hard skill keeps it for when it is made soft. Needs an admin token.",
+        "tags": [
+          "writes"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "cookieAuth": []
+          },
+          {}
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "pattern": "^(?:[a-z0-9]+(?:-[a-z0-9]+)*\\/)?[a-z0-9]+(?:-[a-z0-9]+)*$"
+            },
+            "required": true,
+            "name": "name",
+            "in": "path",
+            "description": "The skill's name, with its group prefix if it has one: `git-commits`, `team/code-review`. Its slash may be plain or escaped as `%2F`."
+          },
+          {
+            "schema": {
+              "type": "string",
+              "enum": [
+                "1"
+              ]
+            },
+            "required": true,
+            "name": "x-honed",
+            "in": "header",
+            "description": "Required on every write: a cross-site form cannot send it."
+          }
+        ],
+        "requestBody": {
+          "description": "The window to set.",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Window"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The skill, with its window now.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Skill"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The change cannot be made as asked: the skill would break a rule (its frontmatter, a path, the cap), or a field is missing.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No token, or one this server did not issue, on a shared honed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "No `x-honed` header, a token that is not an admin's, or a local honed asked under another host name.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No skill has that name.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/skills/{name}/delete": {
       "post": {
         "operationId": "deleteSkill",
         "summary": "Delete skill",
-        "description": "Takes a skill out of the library and search; its history stays in git, and feedback under its name can bring it back. Feedback waiting on it is closed by the deletion. `honed/honer` cannot be deleted. Needs an admin token.",
+        "description": "Takes a skill out of the library and search; its history stays in git, and feedback under its name can bring it back. Feedback waiting on it is closed by the deletion. `honed/honer` and `honed/soft-honer` cannot be deleted. Needs an admin token.",
         "tags": [
           "writes"
         ],
@@ -1575,7 +1871,7 @@
             }
           },
           "409": {
-            "description": "The skill is `honed/honer`.",
+            "description": "The skill is `honed/honer` or `honed/soft-honer`.",
             "content": {
               "application/json": {
                 "schema": {
@@ -1916,7 +2212,7 @@
       "post": {
         "operationId": "reviseSkill",
         "summary": "Revise now",
-        "description": "Has the judge consider the skill now, with whatever feedback is waiting; the only way `honed/honer` is revised. Answers at once: the judgment appears in the skill's history when done. Needs an admin token.",
+        "description": "Has the judge consider the skill now, with whatever feedback is waiting; the only way `honed/honer` and `honed/soft-honer` are revised. Answers at once: the judgment appears in the skill's history when done. Needs an admin token.",
         "tags": [
           "writes"
         ],

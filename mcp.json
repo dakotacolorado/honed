@@ -47,7 +47,7 @@
     {
       "name": "get_skill",
       "title": "Get a skill",
-      "description": "A skill's SKILL.md and the paths of its other files; with path, that one file instead. To run a script, get it and run your copy.",
+      "description": "A skill's SKILL.md, the paths of its other files, and its kind; with path, that one file instead. To run a script, get it and run your copy. kind is hard for most skills; soft for one that records a person's taste, which takes observations without a quote.",
       "inputSchema": {
         "$schema": "http://json-schema.org/draft-07/schema#",
         "type": "object",
@@ -80,7 +80,7 @@
     {
       "name": "submit_feedback",
       "title": "Submit feedback on a skill",
-      "description": "If you edited something a skill mentions, or a skill gave you wrong information, report it before you finish, quoting the skill's text and showing the evidence. quote is that text exactly, evidence what shows it is wrong, and what_changed what you did instead or changed. A report missing any of these, or quoting text the skill does not have, is refused with how to fix it; resubmit it fixed. Include files to suggest exact text. Under a name no skill has yet, it asks for that skill: say what it is for in feedback, follow honed/skill-writing and draft its SKILL.md; no quote is needed. Skills are revised from these reports.",
+      "description": "If you edited something a skill mentions, or a skill gave you wrong information, report it before you finish, quoting the skill's text and showing the evidence. quote is that text exactly, evidence what shows it is wrong, and what_changed what you did instead or changed. A report missing any of these, or quoting text the skill does not have, is refused with how to fix it; resubmit it fixed. Include files to suggest exact text. On a soft skill (get_skill says kind: soft), an observation in feedback is enough: what you saw the person do or say; quote, evidence and what_changed are optional. Under a name no skill has yet, it asks for that skill: say what it is for in feedback, follow honed/skill-writing and draft its SKILL.md; no quote is needed. Skills are revised from these reports.",
       "inputSchema": {
         "$schema": "http://json-schema.org/draft-07/schema#",
         "type": "object",
@@ -123,7 +123,7 @@
             "type": "string"
           },
           "feedback": {
-            "description": "Anything else worth knowing. For a new skill: what it is for.",
+            "description": "Anything else worth knowing. For a new skill: what it is for. For a soft skill: your observation.",
             "type": "string"
           },
           "files": {

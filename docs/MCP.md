@@ -38,6 +38,13 @@ token in `HONED_TOKEN` in their environment (on a honed with no tokens, leave ou
 The contract is [`mcp.json`](../mcp.json); a running honed serves it at `/mcp.json` and this page at `/docs/mcp`.
 Its JSON API is described in [`API.md`](./API.md).
 
+## Hard and soft skills
+
+Most skills are hard: facts an agent can check, such as a command, a path or a process. A report on one quotes the
+skill's text, shows the evidence and says what changed, and is decided at once. A soft skill (`get_skill` says
+`kind: soft`) records something no one report settles, such as a person's taste. A report on it may be an observation
+alone, in `feedback`. It is held to weigh with other sessions' reports, and the skill changes once they agree on a pattern.
+
 ## Instructions
 
 What the server tells an agent when it connects. The first part is the same for every session; the rest names the
@@ -93,7 +100,7 @@ Skills whose name, description or text match any word of query, best first, with
 
 ### get_skill
 
-A skill's SKILL.md and the paths of its other files; with path, that one file instead. To run a script, get it and run your copy.
+A skill's SKILL.md, the paths of its other files, and its kind; with path, that one file instead. To run a script, get it and run your copy. kind is hard for most skills; soft for one that records a person's taste, which takes observations without a quote.
 
 | Input | Type | Required | |
 | --- | --- | --- | --- |
@@ -103,7 +110,7 @@ A skill's SKILL.md and the paths of its other files; with path, that one file in
 
 ### submit_feedback
 
-If you edited something a skill mentions, or a skill gave you wrong information, report it before you finish, quoting the skill's text and showing the evidence. quote is that text exactly, evidence what shows it is wrong, and what_changed what you did instead or changed. A report missing any of these, or quoting text the skill does not have, is refused with how to fix it; resubmit it fixed. Include files to suggest exact text. Under a name no skill has yet, it asks for that skill: say what it is for in feedback, follow honed/skill-writing and draft its SKILL.md; no quote is needed. Skills are revised from these reports.
+If you edited something a skill mentions, or a skill gave you wrong information, report it before you finish, quoting the skill's text and showing the evidence. quote is that text exactly, evidence what shows it is wrong, and what_changed what you did instead or changed. A report missing any of these, or quoting text the skill does not have, is refused with how to fix it; resubmit it fixed. Include files to suggest exact text. On a soft skill (get_skill says kind: soft), an observation in feedback is enough: what you saw the person do or say; quote, evidence and what_changed are optional. Under a name no skill has yet, it asks for that skill: say what it is for in feedback, follow honed/skill-writing and draft its SKILL.md; no quote is needed. Skills are revised from these reports.
 
 | Input | Type | Required | |
 | --- | --- | --- | --- |
@@ -115,7 +122,7 @@ If you edited something a skill mentions, or a skill gave you wrong information,
 | `evidence[].command` | string |  | A command you ran, e.g. npm run lint. |
 | `evidence[].output` | string |  | What the command actually printed. |
 | `what_changed` | string |  | What you did instead of what the quote says, or what you changed that it describes. Not needed for a new skill. |
-| `feedback` | string |  | Anything else worth knowing. For a new skill: what it is for. |
+| `feedback` | string |  | Anything else worth knowing. For a new skill: what it is for. For a soft skill: your observation. |
 | `files` | object[] |  | Optional: files you suggest, each with its whole content. |
 | `files[].path` | string | yes |  |
 | `files[].content` | string | yes |  |

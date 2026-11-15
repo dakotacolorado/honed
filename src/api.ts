@@ -1,5 +1,5 @@
 import { createRoute, z, type OpenAPIHono } from "@hono/zod-openapi";
-import { HONER_SKILL, NAME_ROUTE, SKILL_FILE, type Feedback, type Judgment, type PendingRevision, type Skill, type Version } from "./domain.ts";
+import { DEFAULT_WINDOW, HONER_SKILL, SOFT_HONER_SKILL, NAME_ROUTE, SKILL_FILE, type Feedback, type Judgment, type PendingRevision, type Skill, type Version } from "./domain.ts";
 import type { SkillSummary } from "./hub.ts";
 
 /** Where the contract is served, generated from the routes declared here. */
@@ -12,6 +12,10 @@ export const COOKIE = "honed_token";
 export const OVERVIEW = `honed keeps your organization's skills: the instructions coding agents read before a task, such as how a team writes commits or reviews code. When a skill turns out to be wrong, the agent that hit it reports it, and honed revises the skill from those reports, keeping every version and why it changed.
 
 This API is how honed's web page, or a script of yours, reads the library: each skill with its files, versions and feedback, and why it changed. It is also how an admin edits, reverts or deletes a skill by hand. Agents don't use it: they use the MCP server at \`/mcp\` (docs at \`/docs/mcp\`).
+
+## Hard and soft skills
+
+Every skill is \`hard\` unless an admin makes it \`soft\` (\`POST /api/skills/{name}/kind\`). A hard skill holds facts an agent can check, such as a command, a path or a process: a report quotes its text and shows evidence, and the judge accepts or declines each report at once. A soft skill holds something no one report settles, such as a person's taste. A report on it may be an observation alone. Each judgment sees the skill's latest reports, its window (20 unless set with \`POST /api/skills/{name}/window\`), with how each was sorted before. It holds a report until reports from separate sessions agree on a pattern, or the person says it outright, and declines a pattern the window contradicts. \`honed/soft-honer\` guides how.
 
 ## Tokens
 
@@ -46,6 +50,7 @@ export const SkillSummarySchema = z
     waiting: z.number().int().describe("Feedback no revision has considered yet."),
     protected: z.boolean().describe("Whether a revision from feedback waits for an admin's approval before it is kept."),
     pending: z.boolean().describe("Whether a revision of it is waiting for an admin now."),
+    kind: z.enum(["hard", "soft"]).describe("How it is judged: `hard`, each report decided at once, or `soft`, on patterns across its latest reports."),
     updatedAt: Timestamp,
   })
   .openapi("SkillSummary");
@@ -89,9 +94,9 @@ const FeedbackSchema = z
     at: Timestamp,
     judgment: z.string().nullable().describe("The judgment that considered it; null while it waits for one."),
     sort: z
-      .enum(["accepted", "declined"])
+      .enum(["accepted", "declined", "held"])
       .nullable()
-      .describe("How the judge decided it: accepted (acted on) or declined (closed, with why); null until decided."),
+      .describe("How the judge decided it: accepted (acted on), declined (closed, with why) or, on a soft skill, held (kept in its window to weigh with later reports); null until decided."),
     sortWhy: z.string().nullable().describe("The judge's reason for sorting it so."),
     sortedBy: z.string().nullable().describe("The judgment that sorted it."),
   })
@@ -125,7 +130,12 @@ export const JudgmentSchema = z
 const MaxChars = z.number().int().nullable().describe("The most text it may hold, set by an admin; null for the library's default.");
 const Protected = z.boolean().describe("Set by an admin: a revision the honer makes from feedback waits for an admin's approval before it is kept, and agents read the current version meanwhile.");
 
-export const SkillSchema = z.object({ name: SkillName, version: z.number().int(), createdAt: Timestamp, maxChars: MaxChars, protected: Protected }).openapi("Skill");
+const Kind = z
+  .enum(["hard", "soft"])
+  .describe("Set by an admin. `hard` (the default): facts an agent can check, such as a command, a path or a process; each report is decided at once, and must quote the skill's text with evidence. `soft`: something no one report settles, such as a person's taste; a report may be an observation alone, is held in the skill's window, and the skill changes once reports from separate sessions agree on a pattern.");
+const Window = z.number().int().nullable().describe(`For a soft skill, how many of its latest reports each judgment sees, set by an admin; null for the default (${DEFAULT_WINDOW}).`);
+
+export const SkillSchema = z.object({ name: SkillName, version: z.number().int(), createdAt: Timestamp, maxChars: MaxChars, protected: Protected, kind: Kind, window: Window }).openapi("Skill");
 
 const PendingSchema = z
   .object({
@@ -145,6 +155,8 @@ const SkillDetailSchema = z
     createdAt: Timestamp,
     maxChars: MaxChars,
     protected: Protected,
+    kind: Kind,
+    window: Window,
     pending: PendingSchema.nullable().describe("A revision held for an admin's approval, if one is; agents are never served it."),
     files: z.array(SkillFileSchema).describe("Its files at its current version."),
     versions: z.array(VersionSchema).describe("Every version, newest first."),
@@ -327,17 +339,61 @@ export const limitRoute = createRoute({
   },
 });
 
+export const kindRoute = createRoute({
+  method: "post",
+  path: "/api/skills/{name}/kind",
+  operationId: "setSkillKind",
+  summary: "Set skill kind",
+  description: `How the judge treats the skill's feedback from now on. A hard skill (the default) holds facts an agent can check: each report quotes its text with evidence, and is accepted or declined at once. A soft skill holds something no one report settles, such as a person's taste: a report may be an observation alone, each judgment sees the skill's latest reports (its window) with how each was sorted, and the skill changes only once reports from separate sessions agree on a pattern, guided by \`${SOFT_HONER_SKILL}\`. \`${HONER_SKILL}\` and \`${SOFT_HONER_SKILL}\` stay hard. Needs an admin token.`,
+  ...write,
+  request: {
+    ...write.request,
+    body: json(z.object({ kind: z.enum(["hard", "soft"]).describe("`hard` or `soft`.") }).openapi("Kind"), "The kind to set."),
+  },
+  responses: {
+    200: json(SkillSchema, "The skill, with its kind now."),
+    ...refusals({ ...writeRefusals, 409: "The skill is one of the honers' own guidance, which stays hard." }),
+  },
+});
+
+export const windowRoute = createRoute({
+  method: "post",
+  path: "/api/skills/{name}/window",
+  operationId: "setSkillWindow",
+  summary: "Set report window",
+  description: `How many of a soft skill's latest reports, sorted or not, each judgment of it sees; a report older than that drops out of the case but stays on record. Default ${DEFAULT_WINDOW}. A hard skill keeps it for when it is made soft. Needs an admin token.`,
+  ...write,
+  request: {
+    ...write.request,
+    body: json(
+      z
+        .object({
+          window: z
+            .union([z.number().int(), z.string()])
+            .optional()
+            .describe(`The number of reports, from 1 to 200. Empty or omitted for the default (${DEFAULT_WINDOW}).`),
+        })
+        .openapi("Window"),
+      "The window to set.",
+    ),
+  },
+  responses: {
+    200: json(SkillSchema, "The skill, with its window now."),
+    ...refusals(writeRefusals),
+  },
+});
+
 export const deleteRoute = createRoute({
   method: "post",
   path: "/api/skills/{name}/delete",
   operationId: "deleteSkill",
   summary: "Delete skill",
-  description: `Takes a skill out of the library and search; its history stays in git, and feedback under its name can bring it back. Feedback waiting on it is closed by the deletion. \`${HONER_SKILL}\` cannot be deleted. Needs an admin token.`,
+  description: `Takes a skill out of the library and search; its history stays in git, and feedback under its name can bring it back. Feedback waiting on it is closed by the deletion. \`${HONER_SKILL}\` and \`${SOFT_HONER_SKILL}\` cannot be deleted. Needs an admin token.`,
   ...write,
   request: { ...write.request, body: json(z.object({ reason: Reason }).openapi("Delete"), "Why.") },
   responses: {
     200: json(JudgmentSchema, "The judgment recording the deletion. Its `version` is null."),
-    ...refusals({ ...writeRefusals, 409: `The skill is \`${HONER_SKILL}\`.` }),
+    ...refusals({ ...writeRefusals, 409: `The skill is \`${HONER_SKILL}\` or \`${SOFT_HONER_SKILL}\`.` }),
   },
 });
 
@@ -390,7 +446,7 @@ export const judgeRoute = createRoute({
   path: "/api/skills/{name}/judge",
   operationId: "reviseSkill",
   summary: "Revise now",
-  description: `Has the judge consider the skill now, with whatever feedback is waiting; the only way \`${HONER_SKILL}\` is revised. Answers at once: the judgment appears in the skill's history when done. Needs an admin token.`,
+  description: `Has the judge consider the skill now, with whatever feedback is waiting; the only way \`${HONER_SKILL}\` and \`${SOFT_HONER_SKILL}\` are revised. Answers at once: the judgment appears in the skill's history when done. Needs an admin token.`,
   ...write,
   responses: {
     200: json(z.object({ revising: z.literal(true) }).openapi("Revising"), "The revision has started."),

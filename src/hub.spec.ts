@@ -669,14 +669,14 @@ describe("starters", () => {
     const fresh = await mkdtemp(join(tmpdir(), "honed-starters-"));
     try {
       hub = await Hub.open(fresh, judge);
-      assert.deepEqual(hub.list().map((s) => s.name), ["honed/honer", "honed/skill-writing", "team/code-review", "team/git-commits", "team/ux-review"]);
+      assert.deepEqual(hub.list().map((s) => s.name), ["honed/honer", "honed/skill-writing", "honed/soft-honer", "team/code-review", "team/git-commits", "team/ux-review"]);
       const [v] = hub.store.versions("team/git-commits");
       assert.equal(v?.note, "Shipped with honed");
       assert.equal(hub.judgment(v!.judgment).by, "starter");
       assert.match(await hub.guidance(), /^# Revising a skill from feedback/);
       hub.close();
       hub = await Hub.open(fresh, judge);
-      assert.equal(hub.list().length, 5);
+      assert.equal(hub.list().length, 6);
       assert.equal(hub.skill("team/git-commits").version, 1);
     } finally {
       await hub.idle();

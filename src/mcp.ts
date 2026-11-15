@@ -87,7 +87,7 @@ export function mcpServer(hub: Hub, version: string, caller: Caller, local: bool
     "get_skill",
     {
       title: "Get a skill",
-      description: `A skill's ${SKILL_FILE} and the paths of its other files; with path, that one file instead. To run a script, get it and run your copy.`,
+      description: `A skill's ${SKILL_FILE}, the paths of its other files, and its kind; with path, that one file instead. To run a script, get it and run your copy. kind is hard for most skills; soft for one that records a person's taste, which takes observations without a quote.`,
       inputSchema: {
         name: z.string(),
         path: z.string().optional().describe(`One file of the skill, e.g. scripts/check.sh. Omit for ${SKILL_FILE} and the file list.`),
@@ -107,6 +107,7 @@ export function mcpServer(hub: Hub, version: string, caller: Caller, local: bool
         return {
           name,
           version: version ?? skill.version,
+          kind: skill.kind,
           [SKILL_FILE]: files.find((f) => f.path === SKILL_FILE)?.content ?? "",
           files: files.filter((f) => f.path !== SKILL_FILE).map((f) => ({ path: f.path, executable: f.executable })),
         };
@@ -117,7 +118,7 @@ export function mcpServer(hub: Hub, version: string, caller: Caller, local: bool
     "submit_feedback",
     {
       title: "Submit feedback on a skill",
-      description: `${TRIGGER} quote is that text exactly, evidence what shows it is wrong, and what_changed what you did instead or changed. A report missing any of these, or quoting text the skill does not have, is refused with how to fix it; resubmit it fixed. Include files to suggest exact text. Under a name no skill has yet, it asks for that skill: say what it is for in feedback, follow honed/skill-writing and draft its ${SKILL_FILE}; no quote is needed. Skills are revised from these reports.`,
+      description: `${TRIGGER} quote is that text exactly, evidence what shows it is wrong, and what_changed what you did instead or changed. A report missing any of these, or quoting text the skill does not have, is refused with how to fix it; resubmit it fixed. Include files to suggest exact text. On a soft skill (get_skill says kind: soft), an observation in feedback is enough: what you saw the person do or say; quote, evidence and what_changed are optional. Under a name no skill has yet, it asks for that skill: say what it is for in feedback, follow honed/skill-writing and draft its ${SKILL_FILE}; no quote is needed. Skills are revised from these reports.`,
       inputSchema: {
         name: z.string().describe("The skill, e.g. team/code-review: an optional prefix for its group, then lowercase letters, digits and hyphens."),
         quote: z.string().optional().describe("The exact text in the skill that is wrong or that your edit made out of date, copied from get_skill: a whole sentence or line. Not needed for a new skill."),
@@ -133,7 +134,7 @@ export function mcpServer(hub: Hub, version: string, caller: Caller, local: bool
           .optional()
           .describe("What shows the quote is wrong: each a file with its current contents, or a command with what it printed. Not needed for a new skill."),
         what_changed: z.string().optional().describe("What you did instead of what the quote says, or what you changed that it describes. Not needed for a new skill."),
-        feedback: z.string().optional().describe("Anything else worth knowing. For a new skill: what it is for."),
+        feedback: z.string().optional().describe("Anything else worth knowing. For a new skill: what it is for. For a soft skill: your observation."),
         files: z
           .array(z.object({ path: z.string(), content: z.string(), executable: z.boolean().optional() }))
           .optional()
@@ -147,6 +148,8 @@ export function mcpServer(hub: Hub, version: string, caller: Caller, local: bool
         if (next.kind === "off") return "Recorded. Revision is off on this server, so it will be read by a person.";
         if (next.kind === "protected") return `Recorded. ${name} is protected: a revision from feedback is kept only once an admin approves it, and until then you read it as it is.`;
         if (next.kind === "admin") return `Recorded. ${name} is revised only when an admin asks; your feedback will be there when they do.`;
+        if (next.kind === "soft")
+          return `Recorded. ${name} is a soft skill: your observation is held to weigh with other sessions' reports, and the skill changes once they agree on a pattern.${next.protected ? " It is also protected: a revision is kept only once an admin approves it." : ""}`;
         return hub.store.skill(name)
           ? `Recorded. The honer is judging it now: if your evidence shows the quoted text is wrong, ${name} is fixed from it; anything else waits until other sessions or an admin agree.`
           : `Recorded. The new skill ${name} is being considered now.`;

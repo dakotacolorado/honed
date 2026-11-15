@@ -94,13 +94,21 @@ curl -H "Authorization: Bearer $HONED_TOKEN" https://honed.example.com/api/skill
 - **A namespace** is a name's prefix, as in `team/deploys`. A session sees
   only the namespaces its `X-Honed-Namespaces` header names, plus `honed/`. A
   skill with no prefix is seen by no session.
-- **Feedback** must quote the skill's text that was wrong and show evidence.
+- **Feedback** on a hard skill must quote the skill's text that was wrong and show evidence.
   honed revises the skill by editing that text, within the cap, and the
   skill's history names the reports behind each version.
 - **A protected skill**, set by an admin on its page, holds each revision
   until an admin approves it.
+- **A hard skill**, the default, holds facts an agent can check. Each report
+  is accepted or declined at once.
+- **A soft skill**, set by an admin, holds something no one report settles,
+  such as a person's taste. A report may be an observation with no quote. Each
+  judgment sees the skill's last 20 reports (an admin can change the number)
+  and how each was sorted. A report is held until reports from separate
+  sessions agree on a pattern, and a pattern they contradict is declined.
 - **`honed/skill-writing`** says how to write a skill. **`honed/honer`** says
-  how revisions are decided; it changes only when an admin chooses
+  how revisions of a hard skill are decided, and **`honed/soft-honer`** how
+  those of a soft one are; each changes only when an admin chooses
   **Revise now**.
 - Only an admin can edit, revert or delete a skill.
 

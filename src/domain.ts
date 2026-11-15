@@ -6,6 +6,10 @@ export const DEFAULT_MAX_CHARS = 20_000;
 export const MAX_FILES = 100;
 /** The honer's own guidance: shipped with honed, never deleted, revised only when an admin asks. */
 export const HONER_SKILL = "honed/honer";
+/** The soft honer's guidance: how a soft skill is judged, on patterns across reports. Shipped with honed, never deleted, revised only when an admin asks. */
+export const SOFT_HONER_SKILL = "honed/soft-honer";
+/** The skills that guide the judge: never deleted, revised only when an admin asks, always hard. */
+export const isHoner = (name: string) => name === HONER_SKILL || name === SOFT_HONER_SKILL;
 /** How to write a new skill: agents read it before drafting one, and the honer holds new skills to it. */
 export const WRITING_SKILL = "honed/skill-writing";
 /** Who the honer's feedback on its own guidance is recorded as written by. */
@@ -14,6 +18,8 @@ export const HONER_AUTHOR = "the honer";
 export const JUDGMENT_ATTEMPTS = 3;
 /** Past judgments on a skill the judge is shown, to stay consistent with itself. */
 export const PRECEDENT = 5;
+/** The reports a soft skill's judgment sees, unless an admin sets another number on it. */
+export const DEFAULT_WINDOW = 20;
 /** The fewest characters a quote may have: a fragment matches too much to say which text is wrong. */
 export const MIN_QUOTE = 10;
 /** The most a report's evidence may hold, all of it together. */
@@ -34,6 +40,15 @@ export interface DraftFile {
   executable?: boolean;
 }
 
+/**
+ * hard: facts an agent can check (a command, a path, a process), each report decided at once. soft: a person's taste,
+ * judged on patterns across many sessions' reports, each held until they agree.
+ */
+export type SkillKind = "hard" | "soft";
+
+/** How the judge sorted a report: accepted (acted on), declined (closed), or, on a soft skill only, held to weigh with later reports. */
+export type Sort = "accepted" | "declined" | "held";
+
 export interface Skill {
   name: string;
   version: number;
@@ -42,6 +57,10 @@ export interface Skill {
   maxChars: number | null;
   /** Set by an admin: a revision the honer makes from feedback waits for an admin's approval before it is kept. */
   protected: boolean;
+  /** Set by an admin: hard (the default) or soft. */
+  kind: SkillKind;
+  /** For a soft skill, how many of its latest reports each judgment sees, set by an admin; null for the default. */
+  window: number | null;
 }
 
 /** A revision the honer made of a protected skill, held until an admin approves or declines it. */
@@ -102,8 +121,8 @@ export interface Feedback {
   at: string;
   /** The judgment that considered it; null while it waits for one. */
   judgment: string | null;
-  /** How the judge decided it: accepted (acted on) or declined (closed, with why); null until decided. */
-  sort: "accepted" | "declined" | null;
+  /** How the judge decided it: accepted (acted on), declined (closed, with why) or, on a soft skill, held; null until decided. */
+  sort: Sort | null;
   /** The judge's reason for sorting it so. */
   sortWhy: string | null;
   /** The judgment that sorted it. */
