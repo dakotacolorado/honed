@@ -90,7 +90,8 @@ const CONNECT = [
   "answers only `127.0.0.1`, `localhost` or `[::1]`; once it has tokens, every request carries one as",
   "`Authorization: Bearer honed_…`, from `honed token create`. Feedback is recorded as from that token's name.",
   `\`${NAMESPACES_HEADER}\` names the namespaces a session's repo uses, comma-separated: it sees the skills in them and honed's own`,
-  "`honed/`, and no others. Without it, a session sees only `honed/`.",
+  "`honed/`, and no others. Without it, a session sees only `honed/`. It limits what a session reads, not what it reports on:",
+  "`submit_feedback` takes a report on any skill, or a request for a new one under any name, from any session.",
   "A refusal comes back as the tool's error, in the server's words.",
 ];
 
