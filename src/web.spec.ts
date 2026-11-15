@@ -510,6 +510,25 @@ describe("a server with tokens", () => {
     assert.equal(s.hub.skill("team/deploys").maxChars, null);
   });
 
+  test("returns a person signed in to the page a link asked for, and only to a page here", async () => {
+    const asked = await fetch(`${s.base}/skills/team/deploys?tab=history`, { redirect: "manual" });
+    assert.equal(asked.headers.get("location"), "/login?next=%2Fskills%2Fteam%2Fdeploys%3Ftab%3Dhistory");
+    const form = await (await fetch(`${s.base}${asked.headers.get("location")}`)).text();
+    assert.match(form, /<input type="hidden" name="next" value="\/skills\/team\/deploys\?tab=history" \/>/);
+    // The handoff keeps the query, which names where to return, when it drops the token from the address.
+    assert.match(form, /history\.replaceState\(null,"",location\.pathname\+location\.search\)/);
+    const login = (next: string, token = admin) => fetch(`${s.base}/login`, { method: "POST", body: new URLSearchParams({ token, next }), redirect: "manual" });
+    assert.equal((await login("/skills/team/deploys?tab=history")).headers.get("location"), "/skills/team/deploys?tab=history");
+    for (const away of ["//evil.example.com/x", "/\\evil.example.com", "https://evil.example.com/", "skills"]) assert.equal((await login(away)).headers.get("location"), "/", away);
+    const refused = await (await login("/skills/team/deploys", "honed_nope")).text();
+    assert.match(refused, /name="next" value="\/skills\/team\/deploys"/);
+  });
+
+  test("takes a link's #signin= off the address on a page already signed in", async () => {
+    const home = await (await fetch(s.base, { headers: { authorization: `Bearer ${admin}` } })).text();
+    assert.match(home, /if \(\/\(\?:\^#\|&\)signin=\/\.test\(location\.hash\)\)/);
+  });
+
   test("signs a person in with a token, into a cookie the page then uses", async () => {
     const bad = await fetch(`${s.base}/login`, { method: "POST", body: new URLSearchParams({ token: "honed_nope" }), redirect: "manual" });
     assert.equal(bad.status, 401);

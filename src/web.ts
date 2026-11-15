@@ -162,6 +162,11 @@ footer summary::-webkit-details-marker { display:none; }
  * "/" focuses search.
  */
 const SCRIPT = `
+// A link's #signin=<token>, on a page already signed in: off the address, so it stays out of history.
+if (/(?:^#|&)signin=/.test(location.hash)) {
+  const rest = location.hash.replace(/(?:^#|&)signin=[^&]+/, "").replace(/^#?&/, "#");
+  history.replaceState(null, "", location.pathname + location.search + (rest.length > 1 ? rest : ""));
+}
 const send = (url, body) => fetch(url, { method: "POST", headers: { "content-type": "application/json", "${WRITE_HEADER}": "1" }, body: JSON.stringify(body) });
 document.addEventListener("submit", async (ev) => {
   const form = ev.target.closest("form.act"); if (!form) return;
@@ -599,12 +604,15 @@ async function judgmentPage(hub: Hub, id: string, viewer: Viewer, version: strin
   );
 }
 
-function loginPage(error?: string): Html {
+/** Where a sign-in returns to: a path on this site, else the home page. */
+export const localPath = (next: unknown): string => (typeof next === "string" && /^\/(?![/\\])/.test(next) ? next : "/");
+
+function loginPage(error?: string, next = "/"): Html {
   return page(
     "Sign in · honed",
     html`<h1>Sign in</h1>
       <p class="muted">This honed is shared. Paste the token you were given; <code>honed token create &lt;name&gt;</code> on the server makes one.</p>
-      <form method="post" action="/login" class="search"><input type="password" name="token" placeholder="honed_…" aria-label="Token" autocomplete="current-password" /><button type="submit" class="primary">Sign in</button></form>
+      <form method="post" action="/login" class="search"><input type="password" name="token" placeholder="honed_…" aria-label="Token" autocomplete="current-password" /><input type="hidden" name="next" value="${next}" /><button type="submit" class="primary">Sign in</button></form>
       ${error ? html`<p class="refusal" role="alert">${error}</p>` : ""}
       ${error ? "" : html`<script>${raw(HANDOFF)}</script>`}`,
     { home: true },
@@ -616,7 +624,7 @@ function loginPage(error?: string): Html {
  * (a signed-out page redirects here, and the browser keeps the fragment), which signs in with it
  * as the form would, after dropping it from the address. Not on a refusal, so a bad token cannot loop.
  */
-const HANDOFF = `{const m=/(?:^#|&)signin=([^&]+)/.exec(location.hash);if(m){history.replaceState(null,"",location.pathname);const f=document.querySelector('form[action="/login"]');f.token.value=decodeURIComponent(m[1]);f.submit();}}`;
+const HANDOFF = `{const m=/(?:^#|&)signin=([^&]+)/.exec(location.hash);if(m){history.replaceState(null,"",location.pathname+location.search);const f=document.querySelector('form[action="/login"]');f.token.value=decodeURIComponent(m[1]);f.submit();}}`;
 
 function notFound(message: string): Html {
   return page("Not found · honed", html`<h1>Nothing here</h1><p class="muted">${message}.</p><p><a class="back" href="/">← all skills</a></p>`);
@@ -664,14 +672,15 @@ export function app(hub: Hub, version: string, opts: AppOptions = {}): OpenAPIHo
   const mcpDocs = shipped("docs/mcp.html");
   web.get("/docs/mcp", (c) => c.html(mcpDocs().replaceAll(DEFAULT_URL, originOf(c))));
 
-  web.get("/login", (c) => c.html(loginPage()));
+  web.get("/login", (c) => c.html(loginPage(undefined, localPath(c.req.query("next")))));
   web.post("/login", async (c) => {
     const form = await c.req.parseBody();
     const token = typeof form.token === "string" ? form.token.trim() : "";
-    if (!callerOf(hub.store, token)) return c.html(loginPage("That token is not one this server issued, or it was revoked."), 401);
+    const next = localPath(form.next);
+    if (!callerOf(hub.store, token)) return c.html(loginPage("That token is not one this server issued, or it was revoked.", next), 401);
     const secure = new URL(c.req.url).protocol === "https:" || c.req.header("x-forwarded-proto") === "https";
     setCookie(c, COOKIE, token, { httpOnly: true, sameSite: "Strict", path: "/", secure, maxAge: 60 * 60 * 24 * 30 });
-    return c.redirect("/");
+    return c.redirect(next);
   });
   web.get("/logout", (c) => (deleteCookie(c, COOKIE, { path: "/" }), c.redirect("/login")));
 
@@ -687,7 +696,12 @@ export function app(hub: Hub, version: string, opts: AppOptions = {}): OpenAPIHo
     const bearer = c.req.header("authorization")?.match(/^Bearer\s+(.+)$/i)?.[1];
     const caller = callerOf(hub.store, bearer ?? getCookie(c, COOKIE));
     if (!caller) {
-      if (c.req.method === "GET" && !c.req.path.startsWith("/api") && c.req.path !== "/mcp") return c.redirect("/login");
+      if (c.req.method === "GET" && !c.req.path.startsWith("/api") && c.req.path !== "/mcp") {
+        // The page asked for is where signing in returns to; the browser keeps a link's #signin= across the redirect.
+        const asked = new URL(c.req.url);
+        const there = asked.pathname + asked.search;
+        return c.redirect(there === "/" ? "/login" : `/login?next=${encodeURIComponent(there)}`);
+      }
       c.header("WWW-Authenticate", 'Bearer realm="honed"');
       return c.json({ error: bearer ? "that token is not one this server issued, or it was revoked" : "this honed is shared: send Authorization: Bearer <token>" }, 401);
     }
