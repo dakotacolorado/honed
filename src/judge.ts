@@ -3,13 +3,34 @@ import { query as sdkQuery, type Options as SdkOptions, type SDKMessage } from "
 import { readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { z } from "zod";
-import { reportName, textSize, type Feedback, type Judgment, type SkillFile } from "./domain.ts";
+import { reportName, textSize, type Feedback, type Judgment, type SkillFile, type SkillKind } from "./domain.ts";
 
 /** A past judgment, with the reports it decided on. */
 export type Precedent = Judgment & { feedback: Feedback[] };
 
-/** A decision as the judge writes it: every field present, empty where unused, so one schema serves every case. */
-export const DecisionSchema = z.object({
+/** A hard skill's sort: each report decided now, from that one report. */
+const HardSorted = z
+  .array(
+    z.object({
+      report: z.string().describe("The report's id, from <feedback id=…>."),
+      kind: z.enum(["accepted", "declined"]).describe("accepted: from the agent's own work, it shows the skill wrong, out of date or missing something agents need; acted on now. declined: a preference with nothing behind it, advice for one task only, outside the skill, or longer without better; closed."),
+      why: z.string().describe("In a sentence: what in the evidence decided it."),
+    }),
+  )
+  .describe("Every report (feedback with a <quote>) decided, each once: accepted or declined, now. None waits for agreement.");
+
+/** A soft skill's sort: a report may be held, in the window, until reports from separate sessions show a pattern. */
+const SoftSorted = z
+  .array(
+    z.object({
+      report: z.string().describe("The report's id, from <feedback id=…>: a new one, or one held before."),
+      kind: z.enum(["accepted", "declined", "held"]).describe("accepted: part of a pattern reports from separate sessions agree on, or what the skill's subject said outright; acted on now. declined: a pattern the window's reports contradict, or outside the skill; closed. held: not yet a pattern; kept in the window to weigh with later reports."),
+      why: z.string().describe("In a sentence: which reports in the window decided it."),
+    }),
+  )
+  .describe("Every new report in the window decided, each once, and any held one you now accept or decline. A held report left out stays held.");
+
+const decisionFields = {
   reasoning: z.string().describe("Why you decided as you did, citing the feedback that decided it."),
   changed: z.boolean().describe("true if you are writing a new version of the skill."),
   note: z.string().describe("For a new version: one line for the skill's history. Empty otherwise."),
@@ -20,15 +41,8 @@ export const DecisionSchema = z.object({
     .array(z.object({ path: z.string(), content: z.string(), executable: z.boolean() }))
     .describe("For a new skill, a new file, or a rewrite your reasoning justifies: each file to write, with its whole content. Empty otherwise."),
   remove: z.array(z.string()).describe("For a new version: each file to delete. Empty otherwise."),
-  sorted: z
-    .array(
-      z.object({
-        report: z.string().describe("The report's id, from <feedback id=…>."),
-        kind: z.enum(["accepted", "declined"]).describe("accepted: from the agent's own work, it shows the skill wrong, out of date or missing something agents need; acted on now. declined: a preference with nothing behind it, advice for one task only, outside the skill, or longer without better; closed."),
-        why: z.string().describe("In a sentence: what in the evidence decided it."),
-      }),
-    )
-    .describe("Every report (feedback with a <quote>) decided, each once: accepted or declined, now. None waits for agreement."),
+};
+const decisionAfter = {
   revert_to: z
     .number()
     .int()
@@ -36,13 +50,20 @@ export const DecisionSchema = z.object({
   honer_feedback: z
     .string()
     .describe("Feedback on your own guidance (the honed/honer skill): what deciding this showed it gets wrong or leaves out. Empty when nothing, and always empty when the skill is honed/honer."),
-});
+};
+
+/** A decision as the judge writes it: every field present, empty where unused, so one schema serves every case. */
+const HardDecisionSchema = z.object({ ...decisionFields, sorted: HardSorted, ...decisionAfter });
+/** The same for a soft skill, where a report may also be held. */
+const SoftDecisionSchema = z.object({ ...decisionFields, sorted: SoftSorted, ...decisionAfter });
+/** Any decision as honed reads it back; a held report on a hard skill is refused when it is applied. */
+export const DecisionSchema = SoftDecisionSchema;
 
 export type Decision = z.infer<typeof DecisionSchema>;
 
 /** The decision's JSON Schema as Claude Code's --json-schema takes it, which refuses a `$schema` naming draft 2020-12. */
-export function decisionJsonSchema(): Record<string, unknown> {
-  const { $schema: _, ...schema } = z.toJSONSchema(DecisionSchema) as Record<string, unknown>;
+export function decisionJsonSchema(kind: SkillKind = "hard"): Record<string, unknown> {
+  const { $schema: _, ...schema } = z.toJSONSchema(kind === "soft" ? SoftDecisionSchema : HardDecisionSchema) as Record<string, unknown>;
   return schema;
 }
 
@@ -53,13 +74,18 @@ export interface Case {
   maxChars: number;
   files: SkillFile[];
   others: { name: string; description: string }[];
+  /** On a hard skill, the feedback no judgment has decided. On a soft skill, its window: the latest reports, each with how it was sorted before. */
   feedback: Feedback[];
   precedent: Precedent[];
+  /** hard unless said: a soft skill is judged on patterns across its window. */
+  kind?: SkillKind;
+  /** For a soft skill, the most reports its window holds. */
+  window?: number;
   /** An admin asked for this judgment: the skill is judged now, whatever feedback is waiting. */
   approved: boolean;
   /** Why the judge's last attempt at this same case was refused, for it to correct. */
   failure: string | null;
-  /** How to judge: the body of the honed/honer skill's current version. */
+  /** How to judge: the body of the honer's current version, honed/honer's for a hard skill, honed/soft-honer's for a soft one. */
   guidance: string;
   /** For a skill that does not exist yet: the body of honed/skill-writing, the standard a new skill is held to. */
   writingGuide: string | null;
@@ -99,12 +125,15 @@ export function render(c: Case): string {
       return `<judgment at="${j.startedAt}" changed="${j.changed}"${j.version ? ` made_version="${j.version}"` : ""} reports="${j.feedback.length}">\n${[...reports, j.reasoning].join("\n")}\n</judgment>`;
     })
     .join("\n");
+  const soft = c.kind === "soft";
   return [
-    `<skill name="${c.skill}" version="${c.version}" characters="${textSize(c.files)}" cap="${c.maxChars}">\n${current}\n</skill>`,
+    `<skill name="${c.skill}" version="${c.version}" characters="${textSize(c.files)}" cap="${c.maxChars}"${soft ? ` kind="soft" window="${c.window ?? c.feedback.length}"` : ""}>\n${current}\n</skill>`,
     `<other_skills>\n${c.others.map((o) => `<skill name="${attr(o.name)}">${o.description}</skill>`).join("\n") || "none"}\n</other_skills>`,
     ...(c.writingGuide ? [`<skill_writing_guide>\n${c.writingGuide}\n</skill_writing_guide>`] : []),
     ...(c.approved ? ["<an_admin_asked_for_this_judgment>\nAn admin asked for it: judge the skill now, with whatever feedback is waiting. Decide every report still.\n</an_admin_asked_for_this_judgment>"] : []),
-    `<new_feedback>\n${feedback || "none"}\n</new_feedback>`,
+    soft
+      ? `<window reports="${c.feedback.length}" new="${c.feedback.filter((f) => f.sort === null).length}" held="${c.feedback.filter((f) => f.sort === "held").length}" authors="${new Set(c.feedback.map((f) => f.author)).size}">\n${feedback || "none"}\n</window>`
+      : `<new_feedback>\n${feedback || "none"}\n</new_feedback>`,
     `<your_recent_judgments_on_this_skill>\n${precedent || "none"}\n</your_recent_judgments_on_this_skill>`,
     ...(c.failure ? [`<your_last_attempt_was_refused>\n${c.failure}\n</your_last_attempt_was_refused>`] : []),
   ].join("\n\n");
@@ -113,7 +142,14 @@ export function render(c: Case): string {
 /** What every revision must keep to, whatever the honed/honer skill says: the cap, safety and the decision's form. */
 export const JUDGE_CONTRACT = readFileSync(new URL("./judge-contract.md", import.meta.url), "utf8");
 
-export const systemPrompt = (guidance: string) => `${JUDGE_CONTRACT}\n\n# Your guidance (the honed/honer skill)\n\n${guidance.trim()}\n`;
+/** How a soft skill is judged instead: added to the brief only when the case's skill is soft. */
+export const SOFT_CONTRACT = readFileSync(new URL("./judge-contract-soft.md", import.meta.url), "utf8");
+
+/** The brief, then the honer's guidance; for a soft skill, the brief's soft section and honed/soft-honer's guidance. */
+export const systemPrompt = (guidance: string, kind: SkillKind = "hard") =>
+  kind === "soft"
+    ? `${JUDGE_CONTRACT}\n\n${SOFT_CONTRACT.trim()}\n\n# Your guidance (the honed/soft-honer skill)\n\n${guidance.trim()}\n`
+    : `${JUDGE_CONTRACT}\n\n# Your guidance (the honed/honer skill)\n\n${guidance.trim()}\n`;
 
 /** The Claude Agent SDK's `query`, or a stand-in for tests. */
 export type AgentQuery = (params: { prompt: string; options: SdkOptions }) => AsyncIterable<SDKMessage>;
@@ -153,8 +189,8 @@ export class ClaudeJudge implements Judge {
     const options: SdkOptions = {
       abortController: abort,
       cwd: tmpdir(),
-      systemPrompt: systemPrompt(c.guidance),
-      outputFormat: { type: "json_schema", schema: decisionJsonSchema() },
+      systemPrompt: systemPrompt(c.guidance, c.kind),
+      outputFormat: { type: "json_schema", schema: decisionJsonSchema(c.kind) },
       tools: [],
       allowedTools: [],
       mcpServers: {},
@@ -217,8 +253,8 @@ export class ApiJudge implements Judge {
           max_tokens: 32_000,
           betas: ["server-side-fallback-2026-07-01"],
           fallbacks: "default",
-          system: systemPrompt(c.guidance),
-          output_config: { effort: "high", format: { type: "json_schema", schema: decisionJsonSchema() } },
+          system: systemPrompt(c.guidance, c.kind),
+          output_config: { effort: "high", format: { type: "json_schema", schema: decisionJsonSchema(c.kind) } },
           messages: [{ role: "user", content: render(c) }],
         })
         .finalMessage();

@@ -6,11 +6,11 @@ import { deleteCookie, getCookie, setCookie } from "hono/cookie";
 import { html, raw } from "hono/html";
 import { getPath } from "hono/utils/url";
 import type { HtmlEscapedString } from "hono/utils/html";
-import { approveRoute, COOKIE, declineRoute, deleteRoute, describeApi, editRoute, getJudgmentRoute, getSkillRoute, healthRoute, honoPath, judgeRoute, limitRoute, listSkillsRoute, previewRoute, protectRoute, revertRoute, WRITE_HEADER } from "./api.ts";
+import { approveRoute, COOKIE, declineRoute, deleteRoute, describeApi, editRoute, getJudgmentRoute, getSkillRoute, healthRoute, honoPath, judgeRoute, kindRoute, limitRoute, listSkillsRoute, previewRoute, protectRoute, revertRoute, windowRoute, WRITE_HEADER } from "./api.ts";
 import { callerOf } from "./auth.ts";
 import { buildOf } from "./build.ts";
 import { DEFAULT_URL, LETTERS_ONLY, SUMMARY, SWORD_PIXELS, TAGLINE } from "./banner.ts";
-import { baseName, HONER_SKILL, reportName, NAMESPACES_HEADER, parseNamespaces, Scope, LOCAL_CALLER, NAME_ROUTE, prefixOf, Refusal, SKILL_FILE, type Caller, type Feedback, type Judgment } from "./domain.ts";
+import { baseName, DEFAULT_WINDOW, HONER_SKILL, isHoner, reportName, NAMESPACES_HEADER, parseNamespaces, Scope, LOCAL_CALLER, NAME_ROUTE, prefixOf, Refusal, SKILL_FILE, type Caller, type Feedback, type Judgment } from "./domain.ts";
 import { parseDiff } from "./diffview.ts";
 import { renderMarkdown, withoutFrontmatter } from "./markdown.ts";
 import type { Hub, SkillSummary } from "./hub.ts";
@@ -313,7 +313,7 @@ function feedbackCard(f: Feedback): Html {
     ${f.quote !== null
       ? html`<div class="small muted">says</div><div class="quote">${f.quote}</div>
           ${f.evidence.map((e) => html`<div class="by">${"path" in e ? e.path : html`$ ${e.command}`}</div><pre>${"path" in e ? e.content : e.output}</pre>`)}
-          <div class="small muted">instead</div><div>${f.whatChanged}</div>`
+          ${f.whatChanged !== null ? html`<div class="small muted">instead</div><div>${f.whatChanged}</div>` : ""}`
       : ""}
     ${f.text ? html`<div class="${f.quote !== null ? "" : "quote"}">${f.text}</div>` : ""}
     ${f.draft.length
@@ -322,7 +322,7 @@ function feedbackCard(f: Feedback): Html {
     <div class="by">${reportName(f)} · on ${f.version ? `v${f.version}` : "a new skill"} · ${ago(f.at)} ·
       ${f.judgment ? html`<a href="/judgments/${f.judgment}">considered</a>` : pill("waiting", "waiting")}</div>
     ${f.sort
-      ? html`<div class="small muted">${f.sort === "accepted" ? "accepted: acted on" : "declined"}${f.sortedBy ? html` by <a href="/judgments/${f.sortedBy}">the honer</a>` : ""}${f.sortWhy ? html`: ${f.sortWhy}` : ""}</div>`
+      ? html`<div class="small muted">${f.sort === "accepted" ? "accepted: acted on" : f.sort === "held" ? "held: weighed with later reports" : "declined"}${f.sortedBy ? html` by <a href="/judgments/${f.sortedBy}">the honer</a>` : ""}${f.sortWhy ? html`: ${f.sortWhy}` : ""}</div>`
       : ""}
   </div>`;
 }
@@ -337,7 +337,7 @@ function skillCard(s: SkillSummary, match?: string): Html {
     <div class="name">${baseName(s.name)}</div>
     <div class="desc">${s.description}</div>
     ${match && addsToDescription(match, s.description) ? snippet(match) : ""}
-    <div class="meta"><span>v${s.version}</span>${s.protected ? pill("protected") : ""}${s.pending ? pill("revision waits for approval", "waiting") : ""}${s.waiting ? pill(`${s.waiting} waiting`, "waiting") : ""}${capWarning(s.chars, s.limit)}<span>${ago(s.updatedAt)}</span></div>
+    <div class="meta"><span>v${s.version}</span>${s.kind === "soft" ? pill("soft") : ""}${s.protected ? pill("protected") : ""}${s.pending ? pill("revision waits for approval", "waiting") : ""}${s.waiting ? pill(`${s.waiting} waiting`, "waiting") : ""}${capWarning(s.chars, s.limit)}<span>${ago(s.updatedAt)}</span></div>
   </a>`;
 }
 
@@ -429,7 +429,7 @@ async function skillPage(hub: Hub, name: string, viewer: Viewer, version: string
   const admin = viewer.caller.admin;
   const editing = admin ? view.edit : undefined;
   const adding = admin && view.add && !editing;
-  const tab: Tab = view.tab === "feedback" || view.tab === "history" || view.tab === "skill" ? view.tab : name === HONER_SKILL && admin && summary.waiting ? "feedback" : "skill";
+  const tab: Tab = view.tab === "feedback" || view.tab === "history" || view.tab === "skill" ? view.tab : isHoner(name) && admin && summary.waiting ? "feedback" : "skill";
   const tabLink = (t: Tab, label: Html) => html`<a href="/skills/${name}${t === "skill" ? "" : `?tab=${t}`}" ${tab === t ? html`aria-current="page"` : ""}>${label}</a>`;
   const prefix = prefixOf(name);
   const held = hub.pending(name);
@@ -473,7 +473,7 @@ async function skillPage(hub: Hub, name: string, viewer: Viewer, version: string
       : admin && !editing
         ? html`<a class="button quiet" href="/skills/${name}?add=1">+ Add a file</a>`
         : ""}
-    ${admin && name !== HONER_SKILL && !editing && !adding
+    ${admin && !isHoner(name) && !editing && !adding
       ? html`<details style="margin-top:32px"><summary class="small muted">delete this skill</summary>
           <p class="small muted">Takes it out of the library and search. Its history stays in git, and feedback under its name can bring it back.</p>
           ${action(`/api/skills/${name}/delete`, `Delete ${name}`, { reason: "Why (kept in the history)", danger: true, then: "/" })}</details>`
@@ -481,7 +481,7 @@ async function skillPage(hub: Hub, name: string, viewer: Viewer, version: string
 
   const feedbackTab = () => html`
     ${summary.waiting
-      ? html`<div class="bar-row card"><span>${pill(`${summary.waiting} waiting`, "waiting")} <span class="small muted">${name === HONER_SKILL ? "revised only when an admin asks" : skill.protected ? "each report is accepted or declined as it comes, and a revision is kept once an admin approves" : "each report is accepted or declined as it comes"}</span></span>
+      ? html`<div class="bar-row card"><span>${pill(`${summary.waiting} waiting`, "waiting")} <span class="small muted">${isHoner(name) ? "revised only when an admin asks" : skill.kind === "soft" ? "a soft skill: each report is held in its window until reports from separate sessions agree on a pattern" : skill.protected ? "each report is accepted or declined as it comes, and a revision is kept once an admin approves" : "each report is accepted or declined as it comes"}</span></span>
           ${admin && !judging ? action(`/api/skills/${name}/judge`, "Revise now") : judging ? pill("honing", "running") : ""}</div>`
       : ""}
     ${held ? html`<p class="small muted">Feedback waits while a revision is <a href="#pending">waiting for approval</a>.</p>` : ""}
@@ -539,7 +539,7 @@ async function skillPage(hub: Hub, name: string, viewer: Viewer, version: string
     `${name} · honed`,
     html`<a class="back" href="/">← all skills</a>
       ${prefix ? html`<div class="tag" style="margin-top:14px">${prefix}/</div>` : ""}
-      <h1 style="${prefix ? "" : "margin-top:14px"}">${baseName(name)} ${pill(`v${skill.version}`)} ${skill.protected ? pill("protected") : ""} ${judging ? pill("honing", "running") : ""} ${capWarning(summary.chars, summary.limit)}</h1>
+      <h1 style="${prefix ? "" : "margin-top:14px"}">${baseName(name)} ${pill(`v${skill.version}`)} ${pill(skill.kind)} ${skill.protected ? pill("protected") : ""} ${judging ? pill("honing", "running") : ""} ${capWarning(summary.chars, summary.limit)}</h1>
       <p>${summary.description}</p>
       <div class="meta"><span>updated ${ago(summary.updatedAt)}</span><span title="${skill.maxChars === null ? "the library's default limit" : "this skill's own limit"}">${summary.chars} of ${summary.limit} characters</span></div>
       ${admin && !editing && !adding
@@ -547,18 +547,33 @@ async function skillPage(hub: Hub, name: string, viewer: Viewer, version: string
             <p class="small muted">The most text this skill may hold, all its files together, for the honer's revisions and people's edits alike. Leave it empty for the library's default (${hub.maxChars}). Text already over a lowered limit may only shrink.</p>
             ${action(`/api/skills/${name}/limit`, "Set limit", { extra: html`<input type="number" name="maxChars" min="1" value="${skill.maxChars ?? ""}" placeholder="${hub.maxChars}" aria-label="Limit in characters" />` })}</details>`
         : ""}
-      ${admin && !editing && !adding && name !== HONER_SKILL
+      ${admin && !editing && !adding && !isHoner(name)
+        ? html`<details><summary class="small muted">${skill.kind === "soft" ? "make it hard" : "make it soft"}</summary>
+            <p class="small muted">${skill.kind === "soft"
+              ? "A hard skill holds facts an agent can check. Each report must quote its text with evidence, and is accepted or declined at once."
+              : "A soft skill holds something no one report settles, such as a person's taste. A report may be an observation alone. Each judgment sees the skill's latest reports with how each was sorted, holds a report until reports from separate sessions agree on a pattern, and declines a pattern they contradict."}</p>
+            ${action(`/api/skills/${name}/kind`, skill.kind === "soft" ? "Make it hard" : "Make it soft", { extra: html`<input type="hidden" name="kind" value="${skill.kind === "soft" ? "hard" : "soft"}" />` })}</details>`
+        : ""}
+      ${admin && !editing && !adding && skill.kind === "soft"
+        ? html`<details><summary class="small muted">set its report window</summary>
+            <p class="small muted">How many of its latest reports, sorted or not, each judgment sees. Leave it empty for the default (${DEFAULT_WINDOW}).</p>
+            ${action(`/api/skills/${name}/window`, "Set window", { extra: html`<input type="number" name="window" min="1" max="200" value="${skill.window ?? ""}" placeholder="${DEFAULT_WINDOW}" aria-label="Reports in the window" />` })}</details>`
+        : ""}
+      ${skill.kind === "soft"
+        ? html`<div class="note">Soft: judged on patterns across its latest ${skill.window ?? DEFAULT_WINDOW} reports, not each report at once. A report is held until reports from separate sessions agree, or the person says it outright.</div>`
+        : ""}
+      ${admin && !editing && !adding && !isHoner(name)
         ? html`<details><summary class="small muted">${skill.protected ? "stop protecting it" : "protect it"}</summary>
             <p class="small muted">${skill.protected
               ? "Revisions from feedback are then kept at once, as for any skill."
               : "A revision the honer makes from feedback is then held here for an admin to approve or decline, and agents go on reading the current version. Your own edits and reverts still apply at once."}</p>
             ${action(`/api/skills/${name}/protect`, skill.protected ? "Unprotect" : "Protect", { extra: html`<input type="hidden" name="protected" value="${skill.protected ? "false" : "true"}" />` })}</details>`
         : ""}
-      ${skill.protected && name !== HONER_SKILL
+      ${skill.protected && !isHoner(name)
         ? html`<div class="note">Protected: a revision from feedback is kept only once an admin approves it, and agents read the current version until then. An admin's own edits apply at once.</div>`
         : ""}
-      ${name === HONER_SKILL
-        ? html`<div class="note">This is the honer's own guidance: how honed revises every skill. Agents and the honer itself leave feedback on it as they work; it changes only when an admin chooses <b>Revise now</b>, and the honer never reviews its own review. Its safety rules and the cap live in honed itself and can't be edited away.</div>`
+      ${isHoner(name)
+        ? html`<div class="note">This is the honer's own guidance: how honed revises every ${name === HONER_SKILL ? "hard" : "soft"} skill. Agents and the honer itself leave feedback on it as they work; it changes only when an admin chooses <b>Revise now</b>, and the honer never reviews its own review. Its safety rules and the cap live in honed itself and can't be edited away.</div>`
         : ""}
       ${editing || adding ? "" : await heldCard()}
       <nav class="tabs" aria-label="Skill sections">
@@ -757,6 +772,12 @@ export function app(hub: Hub, version: string, opts: AppOptions = {}): OpenAPIHo
     const b = await body(c);
     const raw = typeof b.maxChars === "number" ? String(b.maxChars) : field(b, "maxChars").trim();
     return c.json(hub.setLimit(c.req.param("name")!, raw === "" ? null : Number(raw)));
+  });
+  declare(kindRoute, async (c) => c.json(hub.setKind(c.req.param("name")!, field(await body(c), "kind").trim())));
+  declare(windowRoute, async (c) => {
+    const b = await body(c);
+    const raw = typeof b.window === "number" ? String(b.window) : field(b, "window").trim();
+    return c.json(hub.setWindow(c.req.param("name")!, raw === "" ? null : Number(raw)));
   });
   declare(deleteRoute, async (c) => c.json(await hub.delete(c.req.param("name")!, field(await body(c), "reason"), c.get("viewer").caller.name)));
   declare(protectRoute, async (c) => {

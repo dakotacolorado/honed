@@ -1,10 +1,14 @@
 # honed
 
-> Version 0.6.3
+> Version 0.6.4
 
 honed keeps your organization's skills: the instructions coding agents read before a task, such as how a team writes commits or reviews code. When a skill turns out to be wrong, the agent that hit it reports it, and honed revises the skill from those reports, keeping every version and why it changed.
 
 This API is how honed's web page, or a script of yours, reads the library: each skill with its files, versions and feedback, and why it changed. It is also how an admin edits, reverts or deletes a skill by hand. Agents don't use it: they use the MCP server at `/mcp` (docs at `/docs/mcp`).
+
+## Hard and soft skills
+
+Every skill is `hard` unless an admin makes it `soft` (`POST /api/skills/{name}/kind`). A hard skill holds facts an agent can check, such as a command, a path or a process: a report quotes its text and shows evidence, and the judge accepts or declines each report at once. A soft skill holds something no one report settles, such as a person's taste. A report on it may be an observation alone. Each judgment sees the skill's latest reports, its window (20 unless set with `POST /api/skills/{name}/window`), with how each was sorted before. It holds a report until reports from separate sessions agree on a pattern, or the person says it outright, and declines a pattern the window contradicts. `honed/soft-honer` guides how.
 
 ## Tokens
 
@@ -35,6 +39,8 @@ A refusal answers `{ "error": "…" }` in words a person can act on, with its st
 | POST | [/api/skills/{name}/edit](#postapiskillsnameedit) | Edit file |
 | POST | [/api/skills/{name}/preview](#postapiskillsnamepreview) | Preview edit |
 | POST | [/api/skills/{name}/limit](#postapiskillsnamelimit) | Set size limit |
+| POST | [/api/skills/{name}/kind](#postapiskillsnamekind) | Set skill kind |
+| POST | [/api/skills/{name}/window](#postapiskillsnamewindow) | Set report window |
 | POST | [/api/skills/{name}/delete](#postapiskillsnamedelete) | Delete skill |
 | POST | [/api/skills/{name}/protect](#postapiskillsnameprotect) | Protect skill |
 | POST | [/api/skills/{name}/approve](#postapiskillsnameapprove) | Approve revision |
@@ -64,6 +70,8 @@ A refusal answers `{ "error": "…" }` in words a person can act on, with its st
 | Preview | [#/components/schemas/Preview](#componentsschemaspreview) |  |
 | Skill | [#/components/schemas/Skill](#componentsschemasskill) |  |
 | Limit | [#/components/schemas/Limit](#componentsschemaslimit) |  |
+| Kind | [#/components/schemas/Kind](#componentsschemaskind) |  |
+| Window | [#/components/schemas/Window](#componentsschemaswindow) |  |
 | Delete | [#/components/schemas/Delete](#componentsschemasdelete) |  |
 | Protect | [#/components/schemas/Protect](#componentsschemasprotect) |  |
 | Approve | [#/components/schemas/Approve](#componentsschemasapprove) |  |
@@ -218,6 +226,10 @@ name: string //pattern: ^(?:[a-z0-9]+(?:-[a-z0-9]+)*\/)?[a-z0-9]+(?:-[a-z0-9]+)*
   maxChars: integer | null
   // Set by an admin: a revision the honer makes from feedback waits for an admin's approval before it is kept, and agents read the current version meanwhile.
   protected: boolean
+  // Set by an admin. `hard` (the default): facts an agent can check, such as a command, a path or a process; each report is decided at once, and must quote the skill's text with evidence. `soft`: something no one report settles, such as a person's taste; a report may be an observation alone, is held in the skill's window, and the skill changes once reports from separate sessions agree on a pattern.
+  kind: enum[hard, soft]
+  // For a soft skill, how many of its latest reports each judgment sees, set by an admin; null for the default (20).
+  window: integer | null
   // A revision held for an admin's approval, if one is; agents are never served it.
   pending: object | null
   files: {
@@ -270,8 +282,8 @@ name: string //pattern: ^(?:[a-z0-9]+(?:-[a-z0-9]+)*\/)?[a-z0-9]+(?:-[a-z0-9]+)*
     at: string
     // The judgment that considered it; null while it waits for one.
     judgment: string | null
-    // How the judge decided it: accepted (acted on) or declined (closed, with why); null until decided.
-    sort: enum[accepted, declined, ] | null
+    // How the judge decided it: accepted (acted on), declined (closed, with why) or, on a soft skill, held (kept in its window to weigh with later reports); null until decided.
+    sort: enum[accepted, declined, held, ] | null
     // The judge's reason for sorting it so.
     sortWhy: string | null
     // The judgment that sorted it.
@@ -381,8 +393,8 @@ id: string
      at: string
      // The judgment that considered it; null while it waits for one.
      judgment: string | null
-     // How the judge decided it: accepted (acted on) or declined (closed, with why); null until decided.
-     sort: enum[accepted, declined, ] | null
+     // How the judge decided it: accepted (acted on), declined (closed, with why) or, on a soft skill, held (kept in its window to weigh with later reports); null until decided.
+     sort: enum[accepted, declined, held, ] | null
      // The judge's reason for sorting it so.
      sortWhy: string | null
      // The judgment that sorted it.
@@ -871,6 +883,253 @@ The limit to set.
   maxChars: integer | null
   // Set by an admin: a revision the honer makes from feedback waits for an admin's approval before it is kept, and agents read the current version meanwhile.
   protected: boolean
+  // Set by an admin. `hard` (the default): facts an agent can check, such as a command, a path or a process; each report is decided at once, and must quote the skill's text with evidence. `soft`: something no one report settles, such as a person's taste; a report may be an observation alone, is held in the skill's window, and the skill changes once reports from separate sessions agree on a pattern.
+  kind: enum[hard, soft]
+  // For a soft skill, how many of its latest reports each judgment sees, set by an admin; null for the default (20).
+  window: integer | null
+}
+```
+
+- 400 The change cannot be made as asked: the skill would break a rule (its frontmatter, a path, the cap), or a field is missing.
+
+`application/json`
+
+```typescript
+{
+  // Why, in words a person can act on.
+  error: string
+}
+```
+
+- 401 No token, or one this server did not issue, on a shared honed.
+
+`application/json`
+
+```typescript
+{
+  // Why, in words a person can act on.
+  error: string
+}
+```
+
+- 403 No `x-honed` header, a token that is not an admin's, or a local honed asked under another host name.
+
+`application/json`
+
+```typescript
+{
+  // Why, in words a person can act on.
+  error: string
+}
+```
+
+- 404 No skill has that name.
+
+`application/json`
+
+```typescript
+{
+  // Why, in words a person can act on.
+  error: string
+}
+```
+
+***
+
+### [POST]/api/skills/{name}/kind
+
+- Summary  
+  Set skill kind
+
+- Operation id  
+  setSkillKind
+
+- Description  
+  How the judge treats the skill's feedback from now on. A hard skill (the default) holds facts an agent can check: each report quotes its text with evidence, and is accepted or declined at once. A soft skill holds something no one report settles, such as a person's taste: a report may be an observation alone, each judgment sees the skill's latest reports (its window) with how each was sorted, and the skill changes only once reports from separate sessions agree on a pattern, guided by `honed/soft-honer`. `honed/honer` and `honed/soft-honer` stay hard. Needs an admin token.
+
+- Tags  
+  writes
+
+- Security  
+  bearerAuth  
+  cookieAuth  
+  None
+
+#### Parameters(Path)
+
+```typescript
+// The skill's name, with its group prefix if it has one: `git-commits`, `team/code-review`. Its slash may be plain or escaped as `%2F`.
+name: string //pattern: ^(?:[a-z0-9]+(?:-[a-z0-9]+)*\/)?[a-z0-9]+(?:-[a-z0-9]+)*$
+```
+
+#### Headers
+
+```typescript
+// Required on every write: a cross-site form cannot send it.
+x-honed: enum[1]
+```
+
+#### RequestBody
+
+The kind to set.
+
+- application/json
+
+```typescript
+{
+  // `hard` or `soft`.
+  kind: enum[hard, soft]
+}
+```
+
+#### Responses
+
+- 200 The skill, with its kind now.
+
+`application/json`
+
+```typescript
+{
+  // A skill's name, with its group prefix if it has one: `git-commits`, `team/code-review`.
+  name: string
+  version: integer
+  // ISO 8601, UTC.
+  createdAt: string
+  // The most text it may hold, set by an admin; null for the library's default.
+  maxChars: integer | null
+  // Set by an admin: a revision the honer makes from feedback waits for an admin's approval before it is kept, and agents read the current version meanwhile.
+  protected: boolean
+  // Set by an admin. `hard` (the default): facts an agent can check, such as a command, a path or a process; each report is decided at once, and must quote the skill's text with evidence. `soft`: something no one report settles, such as a person's taste; a report may be an observation alone, is held in the skill's window, and the skill changes once reports from separate sessions agree on a pattern.
+  kind: enum[hard, soft]
+  // For a soft skill, how many of its latest reports each judgment sees, set by an admin; null for the default (20).
+  window: integer | null
+}
+```
+
+- 400 The change cannot be made as asked: the skill would break a rule (its frontmatter, a path, the cap), or a field is missing.
+
+`application/json`
+
+```typescript
+{
+  // Why, in words a person can act on.
+  error: string
+}
+```
+
+- 401 No token, or one this server did not issue, on a shared honed.
+
+`application/json`
+
+```typescript
+{
+  // Why, in words a person can act on.
+  error: string
+}
+```
+
+- 403 No `x-honed` header, a token that is not an admin's, or a local honed asked under another host name.
+
+`application/json`
+
+```typescript
+{
+  // Why, in words a person can act on.
+  error: string
+}
+```
+
+- 404 No skill has that name.
+
+`application/json`
+
+```typescript
+{
+  // Why, in words a person can act on.
+  error: string
+}
+```
+
+- 409 The skill is one of the honers' own guidance, which stays hard.
+
+`application/json`
+
+```typescript
+{
+  // Why, in words a person can act on.
+  error: string
+}
+```
+
+***
+
+### [POST]/api/skills/{name}/window
+
+- Summary  
+  Set report window
+
+- Operation id  
+  setSkillWindow
+
+- Description  
+  How many of a soft skill's latest reports, sorted or not, each judgment of it sees; a report older than that drops out of the case but stays on record. Default 20. A hard skill keeps it for when it is made soft. Needs an admin token.
+
+- Tags  
+  writes
+
+- Security  
+  bearerAuth  
+  cookieAuth  
+  None
+
+#### Parameters(Path)
+
+```typescript
+// The skill's name, with its group prefix if it has one: `git-commits`, `team/code-review`. Its slash may be plain or escaped as `%2F`.
+name: string //pattern: ^(?:[a-z0-9]+(?:-[a-z0-9]+)*\/)?[a-z0-9]+(?:-[a-z0-9]+)*$
+```
+
+#### Headers
+
+```typescript
+// Required on every write: a cross-site form cannot send it.
+x-honed: enum[1]
+```
+
+#### RequestBody
+
+The window to set.
+
+- application/json
+
+```typescript
+{
+  // The number of reports, from 1 to 200. Empty or omitted for the default (20).
+  window?: Partial(integer) & Partial(string)
+}
+```
+
+#### Responses
+
+- 200 The skill, with its window now.
+
+`application/json`
+
+```typescript
+{
+  // A skill's name, with its group prefix if it has one: `git-commits`, `team/code-review`.
+  name: string
+  version: integer
+  // ISO 8601, UTC.
+  createdAt: string
+  // The most text it may hold, set by an admin; null for the library's default.
+  maxChars: integer | null
+  // Set by an admin: a revision the honer makes from feedback waits for an admin's approval before it is kept, and agents read the current version meanwhile.
+  protected: boolean
+  // Set by an admin. `hard` (the default): facts an agent can check, such as a command, a path or a process; each report is decided at once, and must quote the skill's text with evidence. `soft`: something no one report settles, such as a person's taste; a report may be an observation alone, is held in the skill's window, and the skill changes once reports from separate sessions agree on a pattern.
+  kind: enum[hard, soft]
+  // For a soft skill, how many of its latest reports each judgment sees, set by an admin; null for the default (20).
+  window: integer | null
 }
 ```
 
@@ -929,7 +1188,7 @@ The limit to set.
   deleteSkill
 
 - Description  
-  Takes a skill out of the library and search; its history stays in git, and feedback under its name can bring it back. Feedback waiting on it is closed by the deletion. `honed/honer` cannot be deleted. Needs an admin token.
+  Takes a skill out of the library and search; its history stays in git, and feedback under its name can bring it back. Feedback waiting on it is closed by the deletion. `honed/honer` and `honed/soft-honer` cannot be deleted. Needs an admin token.
 
 - Tags  
   writes
@@ -1044,7 +1303,7 @@ Why.
 }
 ```
 
-- 409 The skill is `honed/honer`.
+- 409 The skill is `honed/honer` or `honed/soft-honer`.
 
 `application/json`
 
@@ -1120,6 +1379,10 @@ Whether to protect it.
   maxChars: integer | null
   // Set by an admin: a revision the honer makes from feedback waits for an admin's approval before it is kept, and agents read the current version meanwhile.
   protected: boolean
+  // Set by an admin. `hard` (the default): facts an agent can check, such as a command, a path or a process; each report is decided at once, and must quote the skill's text with evidence. `soft`: something no one report settles, such as a person's taste; a report may be an observation alone, is held in the skill's window, and the skill changes once reports from separate sessions agree on a pattern.
+  kind: enum[hard, soft]
+  // For a soft skill, how many of its latest reports each judgment sees, set by an admin; null for the default (20).
+  window: integer | null
 }
 ```
 
@@ -1441,7 +1704,7 @@ Why.
   reviseSkill
 
 - Description  
-  Has the judge consider the skill now, with whatever feedback is waiting; the only way `honed/honer` is revised. Answers at once: the judgment appears in the skill's history when done. Needs an admin token.
+  Has the judge consider the skill now, with whatever feedback is waiting; the only way `honed/honer` and `honed/soft-honer` are revised. Answers at once: the judgment appears in the skill's history when done. Needs an admin token.
 
 - Tags  
   writes
@@ -1593,6 +1856,8 @@ Set by signing in on the page.
   protected: boolean
   // Whether a revision of it is waiting for an admin now.
   pending: boolean
+  // How it is judged: `hard`, each report decided at once, or `soft`, on patterns across its latest reports.
+  kind: enum[hard, soft]
   // ISO 8601, UTC.
   updatedAt: string
 }
@@ -1620,6 +1885,10 @@ Set by signing in on the page.
   maxChars: integer | null
   // Set by an admin: a revision the honer makes from feedback waits for an admin's approval before it is kept, and agents read the current version meanwhile.
   protected: boolean
+  // Set by an admin. `hard` (the default): facts an agent can check, such as a command, a path or a process; each report is decided at once, and must quote the skill's text with evidence. `soft`: something no one report settles, such as a person's taste; a report may be an observation alone, is held in the skill's window, and the skill changes once reports from separate sessions agree on a pattern.
+  kind: enum[hard, soft]
+  // For a soft skill, how many of its latest reports each judgment sees, set by an admin; null for the default (20).
+  window: integer | null
   // A revision held for an admin's approval, if one is; agents are never served it.
   pending: object | null
   files: {
@@ -1672,8 +1941,8 @@ Set by signing in on the page.
     at: string
     // The judgment that considered it; null while it waits for one.
     judgment: string | null
-    // How the judge decided it: accepted (acted on) or declined (closed, with why); null until decided.
-    sort: enum[accepted, declined, ] | null
+    // How the judge decided it: accepted (acted on), declined (closed, with why) or, on a soft skill, held (kept in its window to weigh with later reports); null until decided.
+    sort: enum[accepted, declined, held, ] | null
     // The judge's reason for sorting it so.
     sortWhy: string | null
     // The judgment that sorted it.
@@ -1752,8 +2021,8 @@ object | null
   at: string
   // The judgment that considered it; null while it waits for one.
   judgment: string | null
-  // How the judge decided it: accepted (acted on) or declined (closed, with why); null until decided.
-  sort: enum[accepted, declined, ] | null
+  // How the judge decided it: accepted (acted on), declined (closed, with why) or, on a soft skill, held (kept in its window to weigh with later reports); null until decided.
+  sort: enum[accepted, declined, held, ] | null
   // The judge's reason for sorting it so.
   sortWhy: string | null
   // The judgment that sorted it.
@@ -1807,8 +2076,8 @@ object | null
      at: string
      // The judgment that considered it; null while it waits for one.
      judgment: string | null
-     // How the judge decided it: accepted (acted on) or declined (closed, with why); null until decided.
-     sort: enum[accepted, declined, ] | null
+     // How the judge decided it: accepted (acted on), declined (closed, with why) or, on a soft skill, held (kept in its window to weigh with later reports); null until decided.
+     sort: enum[accepted, declined, held, ] | null
      // The judge's reason for sorting it so.
      sortWhy: string | null
      // The judgment that sorted it.
@@ -1895,6 +2164,10 @@ object | null
   maxChars: integer | null
   // Set by an admin: a revision the honer makes from feedback waits for an admin's approval before it is kept, and agents read the current version meanwhile.
   protected: boolean
+  // Set by an admin. `hard` (the default): facts an agent can check, such as a command, a path or a process; each report is decided at once, and must quote the skill's text with evidence. `soft`: something no one report settles, such as a person's taste; a report may be an observation alone, is held in the skill's window, and the skill changes once reports from separate sessions agree on a pattern.
+  kind: enum[hard, soft]
+  // For a soft skill, how many of its latest reports each judgment sees, set by an admin; null for the default (20).
+  window: integer | null
 }
 ```
 
@@ -1904,6 +2177,24 @@ object | null
 {
   // The limit in characters, at least 1. Empty or omitted for the library's default.
   maxChars?: Partial(integer) & Partial(string)
+}
+```
+
+### #/components/schemas/Kind
+
+```typescript
+{
+  // `hard` or `soft`.
+  kind: enum[hard, soft]
+}
+```
+
+### #/components/schemas/Window
+
+```typescript
+{
+  // The number of reports, from 1 to 200. Empty or omitted for the default (20).
+  window?: Partial(integer) & Partial(string)
 }
 ```
 
