@@ -21,8 +21,8 @@ those reports.
 npx @dakotajp/honed
 ```
 
-This starts honed and its page at <http://127.0.0.1:4321>. It needs Node 24 or
-later, git, and a way for Claude to revise skills: a Claude Code login on the
+This starts honed and prints where its page is. It needs Node 24 or later,
+git, and a way for Claude to revise skills: a Claude Code login on the
 machine, `CLAUDE_CODE_OAUTH_TOKEN`, or `ANTHROPIC_API_KEY`. No `claude`
 command needs to be installed.
 
@@ -34,15 +34,15 @@ namespaces it uses:
   "mcpServers": {
     "honed": {
       "type": "http",
-      "url": "http://127.0.0.1:4321/mcp",
+      "url": "https://honed.example.com/mcp",
       "headers": { "Authorization": "Bearer ${HONED_TOKEN}", "X-Honed-Namespaces": "your-project, team" }
     }
   }
 }
 ```
 
-Set `HONED_TOKEN` in your environment (any value works on a local honed with
-no tokens). Each Claude Code session in the repo then sees those skills.
+Set `HONED_TOKEN` in your environment (any value works on a honed with no
+tokens). Each Claude Code session in the repo then sees those skills.
 
 ### Share it with a team
 
@@ -50,11 +50,11 @@ no tokens). Each Claude Code session in the repo then sees those skills.
 npm install -g @dakotajp/honed
 export CLAUDE_CODE_OAUTH_TOKEN=...         # from `claude setup-token`
 honed token create your-name --admin --dir /srv/honed
-honed --host 0.0.0.0 --dir /srv/honed
+honed --dir /srv/honed
 ```
 
-Put it behind HTTPS. Each person sets `HONED_TOKEN` to their own token, so no
-token is committed. Once the first token exists, every request needs one,
+Each person sets `HONED_TOKEN` to their own token, so no token is
+committed. Once the first token exists, every request needs one,
 even while honed is running. `honed token list` and `honed token revoke
 <name>` manage tokens.
 
@@ -62,7 +62,7 @@ even while honed is running. `honed token list` and `honed token revoke
 
 | Option | Environment | Default | What it does |
 |---|---|---|---|
-| `--host` | | `127.0.0.1` | Address to listen on. Any other address shares honed, which then needs a token. |
+| `--host` | | `127.0.0.1` | Address to listen on. |
 | `--port` | `HONED_PORT` | `4321` | Port to listen on. |
 | `--dir` | `HONED_DIR` | `~/.honed` | Where skills and their records are kept. |
 | `--max-chars` | | `20000` | The cap on a skill's text, all its files together. An admin can set each skill's own on its page. |
