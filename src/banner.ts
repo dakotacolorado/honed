@@ -26,6 +26,14 @@ export const SWORD_PIXELS = [
   "#...........",
 ];
 
+/**
+ * The mark as the page's favicon: the sword's pixels as crisp squares, teal on
+ * a light tab and a lighter teal on a dark one.
+ */
+export const MARK_ICON = `<svg xmlns="http://www.w3.org/2000/svg" aria-hidden="true" viewBox="0 0 ${SWORD_PIXELS[0]!.length} ${SWORD_PIXELS.length}" shape-rendering="crispEdges"><style>svg{fill:#0b7a75}@media (prefers-color-scheme:dark){svg{fill:#4fd1c5}}</style>${SWORD_PIXELS.flatMap((row, y) =>
+  [...row].flatMap((p, x) => (p === "#" ? [`<rect x="${x}" y="${y}" width="1" height="1"/>`] : [])),
+).join("")}</svg>`;
+
 /** The sword as text, two pixels a character, for terminals; the page draws SWORD_PIXELS as an image instead. */
 const SWORD = Array.from({ length: SWORD_PIXELS.length / 2 }, (_, row) =>
   [...SWORD_PIXELS[row * 2]!]

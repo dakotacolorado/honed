@@ -142,7 +142,8 @@ describe("a local server, with no tokens", () => {
   test("shows the skills, a search, a skill with its feedback and history, and why it changed", async () => {
     const home = await (await fetch(s.base)).text();
     assert.match(home, /<title>honed<\/title>/);
-    assert.ok(home.includes(encodeURIComponent("🗡️")), "the sword is the tab's icon");
+    assert.match(home, /<link rel="icon" href="\/ui\/mark\.svg\?v=\d+" \/>/, "the pixel sword is the tab's icon");
+    assert.ok(!home.includes(encodeURIComponent("🗡️")), "not the emoji");
     assert.match(home, /<a class="wordmark " href="\/"/, "the wordmark heads the page, full size at home");
     assert.match(home, /agents use a skill, say how it went, and honed revises it\./);
     assert.doesNotMatch(home, /header class="top"/);
@@ -341,6 +342,22 @@ describe("a server with tokens", () => {
     assert.equal(body.ok, true);
     assert.equal(body.version, "test");
     assert.match(body.commit, /^(?:[0-9a-f]{40}(?:-dirty)?|unknown)$/);
+  });
+
+  test("serves its mark as an SVG without a token, and every page, docs and sign-in too, links it as its icon", async () => {
+    const mark = await fetch(`${s.base}/ui/mark.svg`, { redirect: "manual" });
+    assert.equal(mark.status, 200);
+    assert.equal(mark.headers.get("content-type"), "image/svg+xml");
+    const svg = await mark.text();
+    assert.match(svg, /shape-rendering="crispEdges"/);
+    assert.match(svg, /fill:#0b7a75/);
+    assert.match(svg, /prefers-color-scheme:dark\)\{svg\{fill:#4fd1c5/);
+    assert.doesNotMatch(svg, /<text/);
+    for (const [path, token] of [["/", admin], ["/login", undefined], ["/docs/api", undefined], ["/docs/mcp", undefined]] as const) {
+      const page = await (await fetch(`${s.base}${path}`, { headers: token ? { authorization: `Bearer ${token}` } : {} })).text();
+      assert.match(page, /<link rel="icon" href="\/ui\/mark\.svg\?v=\d+" \/>/, path);
+      assert.doesNotMatch(page, /rel="icon" href="data:/, path);
+    }
   });
 
   test("serves one skill by name, its slash plain or escaped, with its version and files, to any token", async () => {
