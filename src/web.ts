@@ -9,7 +9,7 @@ import type { HtmlEscapedString } from "hono/utils/html";
 import { approveRoute, COOKIE, declineRoute, deleteRoute, describeApi, editRoute, getJudgmentRoute, getSkillRoute, healthRoute, honoPath, judgeRoute, kindRoute, limitRoute, listSkillsRoute, previewRoute, protectRoute, revertRoute, windowRoute, WRITE_HEADER } from "./api.ts";
 import { callerOf } from "./auth.ts";
 import { buildOf } from "./build.ts";
-import { DEFAULT_URL, LETTERS_ONLY, SUMMARY, SWORD_PIXELS, TAGLINE } from "./banner.ts";
+import { DEFAULT_URL, LETTERS_ONLY, MARK_ICON, SUMMARY, SWORD_PIXELS, TAGLINE } from "./banner.ts";
 import { baseName, DEFAULT_WINDOW, HONER_SKILL, isHoner, reportName, NAMESPACES_HEADER, parseNamespaces, Scope, LOCAL_CALLER, NAME_ROUTE, prefixOf, Refusal, SKILL_FILE, type Caller, type Feedback, type Judgment } from "./domain.ts";
 import { parseDiff } from "./diffview.ts";
 import { renderMarkdown, withoutFrontmatter } from "./markdown.ts";
@@ -206,7 +206,11 @@ document.addEventListener("keydown", (ev) => {
 });
 `;
 
-const FAVICON = `data:image/svg+xml,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><text x="16" y="26" font-size="26" text-anchor="middle">🗡️</text></svg>')}`;
+/** Where every page finds its tab icon; the query changes when the mark does, so a browser drops one it cached. */
+export const MARK_PATH = "/ui/mark.svg";
+const FAVICON = `${MARK_PATH}?v=1`;
+/** A shipped docs page with honed's tab icon, like every other page. */
+const withIcon = (page: string) => page.replace("</head>", `<link rel="icon" href="${FAVICON}" /></head>`);
 
 function page(title: string, body: Html, opts: { refresh?: boolean; viewer?: Viewer; version?: string; footer?: Html; home?: boolean } = {}): Html {
   const who = opts.viewer && !opts.viewer.local ? html` · ${opts.viewer.caller.name}${opts.viewer.caller.admin ? " (admin)" : ""} · <a href="/logout">sign out</a>` : "";
@@ -680,12 +684,13 @@ export function app(hub: Hub, version: string, opts: AppOptions = {}): OpenAPIHo
   const { commit } = buildOf();
   declare(healthRoute, (c) => c.json({ ok: true as const, version, commit }));
   const apiDocs = shipped("docs/index.html");
-  web.get("/docs/api", (c) => c.html(apiDocs()));
+  web.get("/docs/api", (c) => c.html(withIcon(apiDocs())));
+  web.get(MARK_PATH, (c) => c.body(MARK_ICON, 200, { "content-type": "image/svg+xml", "cache-control": "public, max-age=86400" }));
   const mcpContract = shipped("mcp.json");
   web.get("/mcp.json", (c) => c.body(mcpContract(), 200, { "content-type": "application/json; charset=utf-8" }));
   // The page's example address is the default local one; served, it gives this deployment's own.
   const mcpDocs = shipped("docs/mcp.html");
-  web.get("/docs/mcp", (c) => c.html(mcpDocs().replaceAll(DEFAULT_URL, originOf(c))));
+  web.get("/docs/mcp", (c) => c.html(withIcon(mcpDocs().replaceAll(DEFAULT_URL, originOf(c)))));
 
   web.get("/login", (c) => c.html(loginPage(undefined, localPath(c.req.query("next")))));
   web.post("/login", async (c) => {
